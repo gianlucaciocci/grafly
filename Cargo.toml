@@ -1,0 +1,9 @@
+[package]
+name = "grafly"
+version = "0.1.0"
+edition = "2024"
+description = "Extract, cluster and analyze codebases as knowledge graphs."
+license = "MIT"
+repository = "https://github.com/gianlucaciocci/grafly"
+
+[dependencies]
