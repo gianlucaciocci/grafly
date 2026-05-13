@@ -85,12 +85,7 @@ Rules:
 
 /// Wrap the body in markers so we can find and remove it cleanly.
 fn marked_block() -> String {
-    format!(
-        "{}\n{}\n{}",
-        MARKER_START,
-        grafly_block_body(),
-        MARKER_END
-    )
+    format!("{}\n{}\n{}", MARKER_START, grafly_block_body(), MARKER_END)
 }
 
 /// Cursor's `.mdc` format requires YAML frontmatter to mark a rule as
@@ -113,22 +108,17 @@ alwaysApply: true
 fn target_path(platform: Platform, scope: Scope, project_root: &Path) -> Result<PathBuf> {
     let p = match (platform, scope) {
         (Platform::Claude, Scope::Project) => project_root.join("CLAUDE.md"),
-        (Platform::Claude, Scope::Global) => {
-            home_dir()?.join(".claude").join("CLAUDE.md")
-        }
+        (Platform::Claude, Scope::Global) => home_dir()?.join(".claude").join("CLAUDE.md"),
         (Platform::Agents, Scope::Project) => project_root.join("AGENTS.md"),
-        (Platform::Agents, Scope::Global) => {
-            home_dir()?.join(".agents").join("AGENTS.md")
-        }
-        (Platform::Cursor, _) => project_root.join(".cursor").join("rules").join("grafly.mdc"),
-        (Platform::Copilot, _) => project_root
-            .join(".github")
-            .join("copilot-instructions.md"),
+        (Platform::Agents, Scope::Global) => home_dir()?.join(".agents").join("AGENTS.md"),
+        (Platform::Cursor, _) => project_root
+            .join(".cursor")
+            .join("rules")
+            .join("grafly.mdc"),
+        (Platform::Copilot, _) => project_root.join(".github").join("copilot-instructions.md"),
         (Platform::Windsurf, _) => project_root.join(".windsurfrules"),
         (Platform::Gemini, Scope::Project) => project_root.join("GEMINI.md"),
-        (Platform::Gemini, Scope::Global) => {
-            home_dir()?.join(".gemini").join("GEMINI.md")
-        }
+        (Platform::Gemini, Scope::Global) => home_dir()?.join(".gemini").join("GEMINI.md"),
     };
     Ok(p)
 }
@@ -162,13 +152,11 @@ pub fn install_platform(
     // overwriting whatever was there (it's our file).
     if platform == Platform::Cursor {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
         let content = cursor_mdc();
         let existed = path.exists();
-        fs::write(&path, content)
-            .with_context(|| format!("writing {}", path.display()))?;
+        fs::write(&path, content).with_context(|| format!("writing {}", path.display()))?;
         return Ok(InstallOutcome {
             platform,
             path,
@@ -179,20 +167,18 @@ pub fn install_platform(
     // All other targets are append/replace inside an existing or new markdown
     // file. Use the markers to splice cleanly.
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
 
     let new_block = marked_block();
     let action = if path.exists() {
-        let existing = fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let existing =
+            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         if let Some(updated) = replace_section(&existing, &new_block) {
             if updated == existing {
                 "unchanged"
             } else {
-                fs::write(&path, updated)
-                    .with_context(|| format!("writing {}", path.display()))?;
+                fs::write(&path, updated).with_context(|| format!("writing {}", path.display()))?;
                 "updated"
             }
         } else {
@@ -206,14 +192,12 @@ pub fn install_platform(
             }
             updated.push_str(&new_block);
             updated.push('\n');
-            fs::write(&path, updated)
-                .with_context(|| format!("writing {}", path.display()))?;
+            fs::write(&path, updated).with_context(|| format!("writing {}", path.display()))?;
             "updated"
         }
     } else {
         let content = format!("{}\n", new_block);
-        fs::write(&path, content)
-            .with_context(|| format!("writing {}", path.display()))?;
+        fs::write(&path, content).with_context(|| format!("writing {}", path.display()))?;
         "created"
     };
 
@@ -247,8 +231,7 @@ pub fn uninstall_platform(
 
     // Cursor's .mdc is ours; delete the whole file.
     if platform == Platform::Cursor {
-        fs::remove_file(&path)
-            .with_context(|| format!("removing {}", path.display()))?;
+        fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
         return Ok(UninstallOutcome {
             platform,
             path,
@@ -256,8 +239,8 @@ pub fn uninstall_platform(
         });
     }
 
-    let existing = fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let existing =
+        fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let trimmed = remove_section(&existing);
     if trimmed == existing {
         return Ok(UninstallOutcome {
@@ -269,16 +252,14 @@ pub fn uninstall_platform(
 
     // If the file is now empty (or whitespace only), delete it; we created it.
     if trimmed.trim().is_empty() {
-        fs::remove_file(&path)
-            .with_context(|| format!("removing {}", path.display()))?;
+        fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
         Ok(UninstallOutcome {
             platform,
             path,
             action: "deleted",
         })
     } else {
-        fs::write(&path, trimmed)
-            .with_context(|| format!("writing {}", path.display()))?;
+        fs::write(&path, trimmed).with_context(|| format!("writing {}", path.display()))?;
         Ok(UninstallOutcome {
             platform,
             path,

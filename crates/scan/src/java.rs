@@ -114,13 +114,7 @@ fn emit_interface(node: &Node, file_id: &str, s: &mut Scanner) {
     let id = format!("{}::interface::{}", file_id, name);
     let line = node.start_position().row + 1;
     let vis = extract_java_visibility(node, s);
-    s.add_artifact_with_visibility(
-        id.clone(),
-        name.clone(),
-        ArtifactKind::Interface,
-        line,
-        vis,
-    );
+    s.add_artifact_with_visibility(id.clone(), name.clone(), ArtifactKind::Interface, line, vis);
     s.contains(file_id, &id, line);
 
     let mut nc = node.walk();
@@ -233,8 +227,27 @@ fn node_text<'a>(node: &Node, source: &'a [u8]) -> &'a str {
 }
 
 const JAVA_BUILTINS: &[&str] = &[
-    "println", "print", "printf", "format",
-    "toString", "equals", "hashCode", "getClass", "wait", "notify", "notifyAll",
-    "length", "size", "isEmpty", "contains", "add", "remove", "get", "put",
-    "valueOf", "parseInt", "parseDouble", "parseLong",
+    "println",
+    "print",
+    "printf",
+    "format",
+    "toString",
+    "equals",
+    "hashCode",
+    "getClass",
+    "wait",
+    "notify",
+    "notifyAll",
+    "length",
+    "size",
+    "isEmpty",
+    "contains",
+    "add",
+    "remove",
+    "get",
+    "put",
+    "valueOf",
+    "parseInt",
+    "parseDouble",
+    "parseLong",
 ];

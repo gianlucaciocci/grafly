@@ -4,18 +4,18 @@ use std::path::Path;
 use tree_sitter::{Node, Parser};
 
 pub fn scan(path: &Path, source: &str) -> ScanResult {
-    scan_with_language(path, source, tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
+    scan_with_language(
+        path,
+        source,
+        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+    )
 }
 
 pub fn scan_tsx(path: &Path, source: &str) -> ScanResult {
     scan_with_language(path, source, tree_sitter_typescript::LANGUAGE_TSX.into())
 }
 
-fn scan_with_language(
-    path: &Path,
-    source: &str,
-    language: tree_sitter::Language,
-) -> ScanResult {
+fn scan_with_language(path: &Path, source: &str, language: tree_sitter::Language) -> ScanResult {
     let mut parser = Parser::new();
     parser.set_language(&language).expect("TypeScript grammar");
 
@@ -269,16 +269,59 @@ fn node_text<'a>(node: &Node, source: &'a [u8]) -> &'a str {
 }
 
 const TS_BUILTINS: &[&str] = &[
-    "console", "log", "error", "warn", "info", "debug", "trace",
-    "Array", "Object", "String", "Number", "Boolean", "Date", "RegExp",
-    "Promise", "Map", "Set", "Symbol", "JSON", "Math",
-    "parseInt", "parseFloat", "isNaN", "isFinite",
-    "setTimeout", "setInterval", "clearTimeout", "clearInterval",
-    "require", "import", "fetch", "alert", "prompt", "confirm",
-    "push", "pop", "shift", "unshift", "slice", "splice", "concat",
-    "map", "filter", "reduce", "forEach", "find", "some", "every",
-    "toString", "valueOf", "hasOwnProperty",
+    "console",
+    "log",
+    "error",
+    "warn",
+    "info",
+    "debug",
+    "trace",
+    "Array",
+    "Object",
+    "String",
+    "Number",
+    "Boolean",
+    "Date",
+    "RegExp",
+    "Promise",
+    "Map",
+    "Set",
+    "Symbol",
+    "JSON",
+    "Math",
+    "parseInt",
+    "parseFloat",
+    "isNaN",
+    "isFinite",
+    "setTimeout",
+    "setInterval",
+    "clearTimeout",
+    "clearInterval",
+    "require",
+    "import",
+    "fetch",
+    "alert",
+    "prompt",
+    "confirm",
+    "push",
+    "pop",
+    "shift",
+    "unshift",
+    "slice",
+    "splice",
+    "concat",
+    "map",
+    "filter",
+    "reduce",
+    "forEach",
+    "find",
+    "some",
+    "every",
+    "toString",
+    "valueOf",
+    "hasOwnProperty",
     // DOM / Array / String containment helpers; filter so they don't
     // unique-bind to a user-defined `contains` method.
-    "contains", "includes",
+    "contains",
+    "includes",
 ];

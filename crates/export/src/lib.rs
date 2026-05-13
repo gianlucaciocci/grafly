@@ -122,11 +122,7 @@ pub fn write_json(map: &DependencyMap, path: &Path) -> Result<(), ExportError> {
 
 // ── HTML (artifact-level, filtered) ──────────────────────────────────────────
 
-pub fn write_html(
-    map: &DependencyMap,
-    opts: &HtmlOptions,
-    path: &Path,
-) -> Result<(), ExportError> {
+pub fn write_html(map: &DependencyMap, opts: &HtmlOptions, path: &Path) -> Result<(), ExportError> {
     let (kept_nodes, kept_edges) = select_for_viz(
         map,
         opts.max_nodes,
@@ -164,7 +160,7 @@ fn select_for_viz(
                 (n, d)
             })
             .collect();
-        by_degree.sort_by(|a, b| b.1.cmp(&a.1));
+        by_degree.sort_by_key(|x| std::cmp::Reverse(x.1));
         by_degree.iter().take(c).map(|(n, _)| *n).collect()
     } else {
         candidates.into_iter().collect()
@@ -269,12 +265,10 @@ fn build_module_payload(map: &DependencyMap, opts: &ModuleHtmlOptions) -> Value 
 
     // 2) Pick top-N modules by size
     let mut module_ids: Vec<(usize, usize)> = module_sizes.into_iter().collect();
-    module_ids.sort_by(|a, b| b.1.cmp(&a.1));
+    module_ids.sort_by_key(|x| std::cmp::Reverse(x.1));
     let total_modules = module_ids.len();
     let kept_ids: HashSet<usize> = match opts.max_modules {
-        Some(n) if n < total_modules => {
-            module_ids.iter().take(n).map(|(id, _)| *id).collect()
-        }
+        Some(n) if n < total_modules => module_ids.iter().take(n).map(|(id, _)| *id).collect(),
         _ => module_ids.iter().map(|(id, _)| *id).collect(),
     };
     let shown_modules = kept_ids.len();
@@ -297,7 +291,10 @@ fn build_module_payload(map: &DependencyMap, opts: &ModuleHtmlOptions) -> Value 
         }
         total_cross_module += 1;
         let kind_label = format!("{:?}", e.weight().kind);
-        *agg.entry((sm, dm)).or_default().entry(kind_label).or_default() += 1;
+        *agg.entry((sm, dm))
+            .or_default()
+            .entry(kind_label)
+            .or_default() += 1;
     }
 
     // 4) Build node and edge JSON
@@ -324,7 +321,7 @@ fn build_module_payload(map: &DependencyMap, opts: &ModuleHtmlOptions) -> Value 
             let total: usize = counts.values().sum();
             let mut breakdown: Vec<(String, usize)> =
                 counts.iter().map(|(k, v)| (k.clone(), *v)).collect();
-            breakdown.sort_by(|a, b| b.1.cmp(&a.1));
+            breakdown.sort_by_key(|x| std::cmp::Reverse(x.1));
             let dominant = breakdown[0].0.clone();
             let label = breakdown
                 .iter()
@@ -405,7 +402,11 @@ fn build_package_payload(map: &DependencyMap, opts: &PackageHtmlOptions) -> Valu
         .collect();
 
     // 2) Top-N by file count (default unlimited).
-    packages.sort_by(|a, b| b.file_count.cmp(&a.file_count).then_with(|| a.label.cmp(&b.label)));
+    packages.sort_by(|a, b| {
+        b.file_count
+            .cmp(&a.file_count)
+            .then_with(|| a.label.cmp(&b.label))
+    });
     let total_packages = packages.len();
     let kept: Vec<&PkgRow> = match opts.max_packages {
         Some(n) if n < total_packages => packages.iter().take(n).collect(),
@@ -482,7 +483,7 @@ fn build_package_payload(map: &DependencyMap, opts: &PackageHtmlOptions) -> Valu
             let total: usize = counts.values().sum();
             let mut breakdown: Vec<(String, usize)> =
                 counts.iter().map(|(k, v)| (k.clone(), *v)).collect();
-            breakdown.sort_by(|a, b| b.1.cmp(&a.1));
+            breakdown.sort_by_key(|x| std::cmp::Reverse(x.1));
             let dominant = breakdown[0].0.clone();
             let label = breakdown
                 .iter()

@@ -1,12 +1,11 @@
 //! grafly-scan — discover artifacts and dependencies from source files.
 //!
 //! Public entry points:
-//! - `scan_file(path)` — scan a single source file
-//! - `scan_dir(root)`  — recursively scan a directory in parallel,
-//!                       skipping `.gitignore`d paths, hidden directories,
-//!                       and well-known dependency/build directories
-//!                       (`node_modules`, `target`, `__pycache__`, ...)
-//! - `scan_dir_with_options(root, opts)` — explicit control over filtering
+//! - `scan_file(path)` — scan a single source file.
+//! - `scan_dir(root)` — recursively scan a directory in parallel, skipping
+//!   `.gitignore`d paths, hidden directories, and well-known dependency/build
+//!   directories (`node_modules`, `target`, `__pycache__`, ...).
+//! - `scan_dir_with_options(root, opts)` — explicit control over filtering.
 
 mod go;
 mod java;
@@ -108,12 +107,23 @@ fn is_skipped_common_dir(name: &str) -> bool {
 /// Directory names that signal test / example code in any language.
 /// Matched case-insensitively against each path component.
 const TEST_OR_EXAMPLE_DIRS: &[&str] = &[
-    "tests", "test", "__tests__", "__test__",
-    "spec", "specs",
-    "benches", "bench",
-    "e2e", "integration_tests", "testing",
-    "examples", "example", "demos", "demo",
-    "samples", "sample",
+    "tests",
+    "test",
+    "__tests__",
+    "__test__",
+    "spec",
+    "specs",
+    "benches",
+    "bench",
+    "e2e",
+    "integration_tests",
+    "testing",
+    "examples",
+    "example",
+    "demos",
+    "demo",
+    "samples",
+    "sample",
 ];
 
 fn is_test_or_example_dir(name: &str) -> bool {
@@ -166,11 +176,7 @@ pub fn scan_file(path: &Path) -> Result<ScanResult, ScanError> {
         Some("tsx") => typescript::scan_tsx(path, &source),
         Some("go") => go::scan(path, &source),
         Some("java") => java::scan(path, &source),
-        ext => {
-            return Err(ScanError::Unsupported(
-                ext.unwrap_or("none").to_string(),
-            ))
-        }
+        ext => return Err(ScanError::Unsupported(ext.unwrap_or("none").to_string())),
     };
     Ok(result)
 }
@@ -179,10 +185,7 @@ pub fn scan_dir(root: &Path) -> Result<ScanResult, ScanError> {
     scan_dir_with_options(root, &ScanOptions::default())
 }
 
-pub fn scan_dir_with_options(
-    root: &Path,
-    opts: &ScanOptions,
-) -> Result<ScanResult, ScanError> {
+pub fn scan_dir_with_options(root: &Path, opts: &ScanOptions) -> Result<ScanResult, ScanError> {
     let mut builder = WalkBuilder::new(root);
     builder
         .hidden(opts.skip_hidden)

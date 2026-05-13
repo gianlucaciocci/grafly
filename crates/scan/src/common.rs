@@ -98,13 +98,14 @@ impl<'src> Scanner<'src> {
         });
     }
 
-    pub fn contains(
-        &mut self,
-        parent: impl Into<String>,
-        child: impl Into<String>,
-        line: usize,
-    ) {
-        self.add_dependency(parent, child, DependencyKind::Contains, Confidence::Extracted, line);
+    pub fn contains(&mut self, parent: impl Into<String>, child: impl Into<String>, line: usize) {
+        self.add_dependency(
+            parent,
+            child,
+            DependencyKind::Contains,
+            Confidence::Extracted,
+            line,
+        );
     }
 
     // ── Unresolved references (resolved at build time) ───────────────────────
@@ -186,7 +187,13 @@ impl<'src> Scanner<'src> {
         target_name: impl Into<String>,
         line: usize,
     ) {
-        self.record_unresolved(source_id, target_name, None, DependencyKind::References, line);
+        self.record_unresolved(
+            source_id,
+            target_name,
+            None,
+            DependencyKind::References,
+            line,
+        );
     }
 }
 
@@ -239,15 +246,15 @@ pub fn classify_call_target(
             return (name, enclosing_type.map(String::from));
         }
         // Capitalised plain identifier → likely a type used statically
-        if !receiver_expr.contains('.') && !receiver_expr.contains('(') {
-            if receiver_expr
+        if !receiver_expr.contains('.')
+            && !receiver_expr.contains('(')
+            && receiver_expr
                 .chars()
                 .next()
                 .map(|c| c.is_uppercase())
                 .unwrap_or(false)
-            {
-                return (name, Some(receiver_expr.to_string()));
-            }
+        {
+            return (name, Some(receiver_expr.to_string()));
         }
         return (name, None);
     }
@@ -263,11 +270,7 @@ fn strip_generics(text: &str) -> String {
     while let Some(c) = chars.next() {
         match c {
             '<' => depth += 1,
-            '>' => {
-                if depth > 0 {
-                    depth -= 1
-                }
-            }
+            '>' if depth > 0 => depth -= 1,
             ':' if depth == 0 => {
                 if matches!(chars.peek(), Some(':')) {
                     out.push(':');
@@ -276,7 +279,7 @@ fn strip_generics(text: &str) -> String {
                     if matches!(chars.peek(), Some('<')) {
                         chars.next();
                         let mut d: i32 = 1;
-                        while let Some(nx) = chars.next() {
+                        for nx in chars.by_ref() {
                             if nx == '<' {
                                 d += 1;
                             } else if nx == '>' {
@@ -317,7 +320,9 @@ pub fn last_identifier(text: &str) -> String {
         result = &result[..idx];
     }
     // strip parens/whitespace
-    result.trim_matches(|c: char| !c.is_alphanumeric() && c != '_').to_string()
+    result
+        .trim_matches(|c: char| !c.is_alphanumeric() && c != '_')
+        .to_string()
 }
 
 /// Visibility from Go-style "first letter capitalisation" rule.
@@ -342,6 +347,33 @@ pub fn visibility_from_python_name(name: &str) -> Visibility {
         Visibility::Private
     } else {
         Visibility::Public
+    }
+}
+
+/// Iteratively walk every descendant of `root` (excluding `root` itself)
+/// using a tree-cursor. Calls `f` on each descendant.
+pub fn walk_descendants<F: FnMut(Node)>(root: Node, mut f: F) {
+    let mut cursor = root.walk();
+    if !cursor.goto_first_child() {
+        return;
+    }
+    loop {
+        f(cursor.node());
+        if cursor.goto_first_child() {
+            continue;
+        }
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                return;
+            }
+            // bail when we've climbed back to root
+            if cursor.node().id() == root.id() {
+                return;
+            }
+        }
     }
 }
 
@@ -383,32 +415,5 @@ mod visibility_tests {
     fn python_no_underscore_is_public() {
         assert_eq!(visibility_from_python_name("foo"), Visibility::Public);
         assert_eq!(visibility_from_python_name("Foo"), Visibility::Public);
-    }
-}
-
-/// Iteratively walk every descendant of `root` (excluding `root` itself)
-/// using a tree-cursor. Calls `f` on each descendant.
-pub fn walk_descendants<F: FnMut(Node)>(root: Node, mut f: F) {
-    let mut cursor = root.walk();
-    if !cursor.goto_first_child() {
-        return;
-    }
-    loop {
-        f(cursor.node());
-        if cursor.goto_first_child() {
-            continue;
-        }
-        loop {
-            if cursor.goto_next_sibling() {
-                break;
-            }
-            if !cursor.goto_parent() {
-                return;
-            }
-            // bail when we've climbed back to root
-            if cursor.node().id() == root.id() {
-                return;
-            }
-        }
     }
 }

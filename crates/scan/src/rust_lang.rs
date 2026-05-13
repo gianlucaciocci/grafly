@@ -53,7 +53,9 @@ pub fn scan(path: &Path, source: &str) -> ScanResult {
         match child.kind() {
             "function_item" => emit_function(&child, &file_id, &file_id, None, &mut s),
 
-            "struct_item" => emit_named_top(&child, &file_id, "struct", ArtifactKind::Struct, &mut s),
+            "struct_item" => {
+                emit_named_top(&child, &file_id, "struct", ArtifactKind::Struct, &mut s)
+            }
             "enum_item" => emit_named_top(&child, &file_id, "enum", ArtifactKind::Enum, &mut s),
             "trait_item" => emit_named_top(&child, &file_id, "trait", ArtifactKind::Trait, &mut s),
 
@@ -83,13 +85,7 @@ pub fn scan(path: &Path, source: &str) -> ScanResult {
     s.result
 }
 
-fn emit_named_top(
-    node: &Node,
-    file_id: &str,
-    prefix: &str,
-    kind: ArtifactKind,
-    s: &mut Scanner,
-) {
+fn emit_named_top(node: &Node, file_id: &str, prefix: &str, kind: ArtifactKind, s: &mut Scanner) {
     let name = s.field_text(node, "name");
     if name.is_empty() {
         return;
@@ -124,12 +120,7 @@ fn extract_rust_visibility(node: &Node, s: &Scanner) -> Visibility {
     Visibility::Private
 }
 
-fn emit_impl(
-    node: &Node,
-    file_id: &str,
-    local_types: &HashMap<String, String>,
-    s: &mut Scanner,
-) {
+fn emit_impl(node: &Node, file_id: &str, local_types: &HashMap<String, String>, s: &mut Scanner) {
     let type_name = s.field_text(node, "type");
     if type_name.is_empty() {
         return;
@@ -266,14 +257,60 @@ fn is_inline_test_mod(name: &str) -> bool {
 /// Rust prelude/macro names that almost never refer to user code. These are
 /// filtered before resolution so they don't pollute the unresolved set.
 const RUST_BUILTINS: &[&str] = &[
-    "println", "print", "eprintln", "eprint", "format", "write", "writeln",
-    "vec", "assert", "assert_eq", "assert_ne", "debug_assert", "debug_assert_eq",
-    "panic", "unimplemented", "unreachable", "todo", "dbg", "matches",
+    "println",
+    "print",
+    "eprintln",
+    "eprint",
+    "format",
+    "write",
+    "writeln",
+    "vec",
+    "assert",
+    "assert_eq",
+    "assert_ne",
+    "debug_assert",
+    "debug_assert_eq",
+    "panic",
+    "unimplemented",
+    "unreachable",
+    "todo",
+    "dbg",
+    "matches",
     // Common methods on Option/Result/Vec/String that bloat the unresolved set.
     // We drop them rather than emit a Call we can't trust.
-    "unwrap", "expect", "ok", "err", "is_some", "is_none", "is_ok", "is_err",
-    "into", "from", "to_string", "clone", "as_ref", "as_str", "as_mut",
-    "len", "is_empty", "iter", "into_iter", "collect", "map", "filter",
-    "ok_or", "ok_or_else", "and_then", "or_else", "unwrap_or", "unwrap_or_else",
-    "push", "pop", "insert", "remove", "get", "contains_key", "contains",
+    "unwrap",
+    "expect",
+    "ok",
+    "err",
+    "is_some",
+    "is_none",
+    "is_ok",
+    "is_err",
+    "into",
+    "from",
+    "to_string",
+    "clone",
+    "as_ref",
+    "as_str",
+    "as_mut",
+    "len",
+    "is_empty",
+    "iter",
+    "into_iter",
+    "collect",
+    "map",
+    "filter",
+    "ok_or",
+    "ok_or_else",
+    "and_then",
+    "or_else",
+    "unwrap_or",
+    "unwrap_or_else",
+    "push",
+    "pop",
+    "insert",
+    "remove",
+    "get",
+    "contains_key",
+    "contains",
 ];

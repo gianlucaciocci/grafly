@@ -205,8 +205,15 @@ fn main() -> Result<()> {
         let first = argv[1].as_str();
         let known = matches!(
             first,
-            "analyze" | "install" | "uninstall" | "list" | "help"
-                | "-h" | "--help" | "-V" | "--version"
+            "analyze"
+                | "install"
+                | "uninstall"
+                | "list"
+                | "help"
+                | "-h"
+                | "--help"
+                | "-V"
+                | "--version"
         );
         if !known {
             argv.insert(1, "analyze".to_string());
@@ -397,14 +404,22 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
     } else {
         grafly_cluster::DetectionConfig::default()
     };
-    let mode = if cli.leiden_thorough { "thorough" } else { "fast" };
+    let mode = if cli.leiden_thorough {
+        "thorough"
+    } else {
+        "fast"
+    };
     pb.set_message(format!(
         "(leiden, resolution={}, mode={})",
         cli.resolution, mode
     ));
-    let modules =
-        grafly_cluster::detect_modules_with_config(&mut map, cli.resolution, cli.seed, &detection_config)
-            .context("module detection failed")?;
+    let modules = grafly_cluster::detect_modules_with_config(
+        &mut map,
+        cli.resolution,
+        cli.seed,
+        &detection_config,
+    )
+    .context("module detection failed")?;
     pb.finish_and_clear();
     println!(
         "[3/4] detecting modules (leiden, resolution={}, mode={}) ... {} modules (quality = {:.4})",
@@ -422,8 +437,9 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
         None
     } else {
         let pb = spinner("[3b/4] intra-package modules");
-        let result = grafly_cluster::detect_modules_within_packages(&map, &detection_config, cli.seed)
-            .context("intra-package module detection failed")?;
+        let result =
+            grafly_cluster::detect_modules_within_packages(&map, &detection_config, cli.seed)
+                .context("intra-package module detection failed")?;
         pb.finish_and_clear();
         let clustered = result.values().filter(|m| !m.members.is_empty()).count();
         let total_intra: usize = result.values().map(|m| m.count()).sum();
@@ -443,12 +459,17 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
     if !cli.include_imports {
         let before = map.edge_count();
         map.retain_edges(|frozen, e| {
-            frozen.edge_weight(e).map(|d| d.kind != grafly_core::DependencyKind::Imports)
+            frozen
+                .edge_weight(e)
+                .map(|d| d.kind != grafly_core::DependencyKind::Imports)
                 .unwrap_or(false)
         });
         let dropped = before - map.edge_count();
         if dropped > 0 {
-            println!("       dropped {} Imports edges (use --include-imports to keep)", dropped);
+            println!(
+                "       dropped {} Imports edges (use --include-imports to keep)",
+                dropped
+            );
         }
     }
 
@@ -560,7 +581,10 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
     println!("  wrote {}", readme_path.display());
 
     let questions_path = output_dir.join("SUGGESTED_QUESTIONS.md");
-    std::fs::write(&questions_path, grafly_report::generate_suggested_questions())?;
+    std::fs::write(
+        &questions_path,
+        grafly_report::generate_suggested_questions(),
+    )?;
     println!("  wrote {}", questions_path.display());
 
     println!("\ndone.");

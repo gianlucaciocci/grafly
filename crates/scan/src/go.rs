@@ -112,7 +112,11 @@ pub fn scan(path: &Path, source: &str) -> ScanResult {
                         })
                         .unwrap_or(ArtifactKind::Struct);
 
-                    let prefix = if kind == ArtifactKind::Interface { "interface" } else { "struct" };
+                    let prefix = if kind == ArtifactKind::Interface {
+                        "interface"
+                    } else {
+                        "struct"
+                    };
                     let line = spec.start_position().row + 1;
                     let id = format!("{}::{}::{}", file_id, prefix, name);
                     let vis = visibility_from_go_name(&name);
@@ -207,6 +211,6 @@ fn is_main_package(root: &Node, source: &[u8]) -> bool {
 }
 
 const GO_BUILTINS: &[&str] = &[
-    "make", "new", "len", "cap", "append", "copy", "delete", "panic",
-    "recover", "print", "println", "close", "complex", "real", "imag",
+    "make", "new", "len", "cap", "append", "copy", "delete", "panic", "recover", "print",
+    "println", "close", "complex", "real", "imag",
 ];

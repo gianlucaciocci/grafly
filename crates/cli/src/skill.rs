@@ -268,8 +268,7 @@ pub fn install_claude_skill() -> Result<Vec<SkillOutcome>> {
     for (name, content) in SKILLS {
         let skill_path = skill_file_path(name)?;
         if let Some(parent) = skill_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
         let action = if skill_path.exists() {
             let current = fs::read_to_string(&skill_path).unwrap_or_default();
@@ -295,8 +294,7 @@ pub fn install_claude_skill() -> Result<Vec<SkillOutcome>> {
     // 2. Registration in ~/.claude/CLAUDE.md
     let reg_path = registration_file_path()?;
     if let Some(parent) = reg_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     let new_block = registration_block();
     let reg_action = if reg_path.exists() {

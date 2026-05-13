@@ -22,9 +22,7 @@ use crate::install::{
     install_platform, list_marker_path, uninstall_platform, InstallOutcome, Platform, Scope,
     UninstallOutcome,
 };
-use crate::install_mcp::{
-    install_mcp, list_marker_mcp_path, uninstall_mcp, McpClient, McpOutcome,
-};
+use crate::install_mcp::{install_mcp, list_marker_mcp_path, uninstall_mcp, McpClient, McpOutcome};
 use crate::skill::{install_claude_skill, uninstall_claude_skill, SkillOutcome};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
