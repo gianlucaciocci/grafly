@@ -417,7 +417,9 @@ pub fn descendants(map: &DependencyMap, source: NodeIndex, depth: usize) -> Subg
 #[cfg(test)]
 mod tests {
     use super::*;
-    use grafly_core::{ArtifactKind, MapBuilder, RawArtifact, RawDependency, ScanResult};
+    use grafly_core::{
+        ArtifactKind, MapBuilder, RawArtifact, RawDependency, ScanResult, Visibility,
+    };
 
     fn raw_artifact(id: &str, label: &str) -> RawArtifact {
         RawArtifact {
@@ -428,6 +430,7 @@ mod tests {
             source_line: 1,
             description: None,
             is_entry_point: false,
+            visibility: Visibility::Unknown,
         }
     }
 

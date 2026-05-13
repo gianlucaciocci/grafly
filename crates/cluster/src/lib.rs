@@ -1,6 +1,6 @@
 //! grafly-cluster — detect modules in a dependency map using the Leiden algorithm.
 
-use grafly_core::{ArtifactKind, DependencyKind, DependencyMap};
+use grafly_core::{ArtifactKind, DependencyKind, DependencyMap, Visibility};
 use leiden_rs::{Leiden, LeidenConfig, QualityType};
 use petgraph::graph::{Graph, NodeIndex};
 use petgraph::visit::EdgeRef;
@@ -349,30 +349,23 @@ fn is_noisy_label(label: &str) -> bool {
 }
 
 /// Pick a representative name for a module. Strategy:
-/// 1. Among non-noisy artifacts, prefer Classes/Structs/Traits/Interfaces over
-///    Functions/Methods, breaking ties by total degree.
-/// 2. If every candidate is filtered as noisy, fall back to the file stem of
+/// 1. Among non-noisy, non-Private artifacts, prefer Classes/Structs/Traits/
+///    Interfaces over Functions/Methods, breaking ties by total degree.
+///    Naming a module after a Private helper would mislabel the architecture.
+/// 2. If no public candidate exists, retry including Private symbols.
+/// 3. If every candidate is filtered as noisy, fall back to the file stem of
 ///    the source file that holds the most members of this module.
 fn pick_module_name(map: &DependencyMap, members: &[NodeIndex]) -> String {
     if members.is_empty() {
         return String::from("empty");
     }
 
-    let best = members
-        .iter()
-        .filter_map(|&n| {
-            let a = &map[n];
-            if is_noisy_label(&a.label) {
-                return None;
-            }
-            let degree = map.edges_directed(n, petgraph::Direction::Outgoing).count()
-                + map.edges_directed(n, petgraph::Direction::Incoming).count();
-            Some((n, kind_priority(&a.kind), degree))
-        })
-        .max_by_key(|&(_, prio, deg)| (prio, deg))
-        .map(|(n, _, _)| map[n].display_label());
-
-    if let Some(name) = best {
+    // Pass 1: prefer public/crate/unknown over private.
+    if let Some(name) = pick_label_among(map, members, /*allow_private=*/ false) {
+        return name;
+    }
+    // Pass 2: relax — pick any non-noisy symbol regardless of visibility.
+    if let Some(name) = pick_label_among(map, members, /*allow_private=*/ true) {
         return name;
     }
 
@@ -390,6 +383,29 @@ fn pick_module_name(map: &DependencyMap, members: &[NodeIndex]) -> String {
     }
 
     String::from("unnamed")
+}
+
+fn pick_label_among(
+    map: &DependencyMap,
+    members: &[NodeIndex],
+    allow_private: bool,
+) -> Option<String> {
+    members
+        .iter()
+        .filter_map(|&n| {
+            let a = &map[n];
+            if is_noisy_label(&a.label) {
+                return None;
+            }
+            if !allow_private && matches!(a.visibility, Visibility::Private) {
+                return None;
+            }
+            let degree = map.edges_directed(n, petgraph::Direction::Outgoing).count()
+                + map.edges_directed(n, petgraph::Direction::Incoming).count();
+            Some((n, kind_priority(&a.kind), degree))
+        })
+        .max_by_key(|&(_, prio, deg)| (prio, deg))
+        .map(|(n, _, _)| map[n].display_label())
 }
 
 fn kind_priority(kind: &ArtifactKind) -> u8 {

@@ -424,6 +424,7 @@ impl GraflyServer {
                     max_nodes: Some(800),
                     module_names: modules.names.clone(),
                     include_ambiguous: false,
+                    include_private: false,
                 };
                 let module_html_opts = grafly_export::ModuleHtmlOptions {
                     max_modules: Some(100),

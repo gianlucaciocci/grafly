@@ -1,4 +1,4 @@
-use crate::common::{classify_call_target, walk_descendants, Scanner};
+use crate::common::{classify_call_target, visibility_from_go_name, walk_descendants, Scanner};
 use grafly_core::{ArtifactKind, ScanResult};
 use std::path::Path;
 use tree_sitter::{Node, Parser};
@@ -46,7 +46,14 @@ pub fn scan(path: &Path, source: &str) -> ScanResult {
                 }
                 let fn_id = format!("{}::fn::{}", file_id, name);
                 let line = child.start_position().row + 1;
-                s.add_artifact(fn_id.clone(), name, ArtifactKind::Function, line);
+                let vis = visibility_from_go_name(&name);
+                s.add_artifact_with_visibility(
+                    fn_id.clone(),
+                    name,
+                    ArtifactKind::Function,
+                    line,
+                    vis,
+                );
                 s.contains(&file_id, &fn_id, line);
                 if let Some(body) = child.child_by_field_name("body") {
                     walk_for_calls(body, &fn_id, None, &mut s);
@@ -66,7 +73,8 @@ pub fn scan(path: &Path, source: &str) -> ScanResult {
                     format!("{}::struct::{}::method::{}", file_id, receiver_type, name)
                 };
                 let line = child.start_position().row + 1;
-                s.add_artifact(mid.clone(), name, ArtifactKind::Method, line);
+                let vis = visibility_from_go_name(&name);
+                s.add_artifact_with_visibility(mid.clone(), name, ArtifactKind::Method, line, vis);
 
                 if receiver_type.is_empty() {
                     s.contains(&file_id, &mid, line);
@@ -107,7 +115,8 @@ pub fn scan(path: &Path, source: &str) -> ScanResult {
                     let prefix = if kind == ArtifactKind::Interface { "interface" } else { "struct" };
                     let line = spec.start_position().row + 1;
                     let id = format!("{}::{}::{}", file_id, prefix, name);
-                    s.add_artifact(id.clone(), name, kind, line);
+                    let vis = visibility_from_go_name(&name);
+                    s.add_artifact_with_visibility(id.clone(), name, kind, line, vis);
                     s.contains(&file_id, &id, line);
                 }
             }

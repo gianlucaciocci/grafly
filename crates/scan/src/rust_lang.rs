@@ -1,5 +1,5 @@
 use crate::common::{classify_call_target, last_identifier, walk_descendants, Scanner};
-use grafly_core::{ArtifactKind, ScanResult};
+use grafly_core::{ArtifactKind, ScanResult, Visibility};
 use std::collections::HashMap;
 use std::path::Path;
 use tree_sitter::{Node, Parser};
@@ -96,8 +96,32 @@ fn emit_named_top(
     }
     let line = node.start_position().row + 1;
     let id = format!("{}::{}::{}", file_id, prefix, name);
-    s.add_artifact(id.clone(), name, kind, line);
+    let vis = if kind == ArtifactKind::Namespace {
+        Visibility::Unknown
+    } else {
+        extract_rust_visibility(node, s)
+    };
+    s.add_artifact_with_visibility(id.clone(), name, kind, line, vis);
     s.contains(file_id, &id, line);
+}
+
+/// Read the `visibility_modifier` child (if any) and classify into
+/// [`Visibility`]. `pub` → Public; `pub(crate)` and other `pub(...)` variants
+/// → Crate; no modifier → Private.
+fn extract_rust_visibility(node: &Node, s: &Scanner) -> Visibility {
+    let mut c = node.walk();
+    for child in node.children(&mut c) {
+        if child.kind() == "visibility_modifier" {
+            let text = s.text(&child).trim();
+            if text == "pub" {
+                return Visibility::Public;
+            }
+            if text.starts_with("pub(") {
+                return Visibility::Crate;
+            }
+        }
+    }
+    Visibility::Private
 }
 
 fn emit_impl(
@@ -155,7 +179,8 @@ fn emit_function(
     }
     let fn_id = format!("{}::fn::{}", file_id, name);
     let line = node.start_position().row + 1;
-    s.add_artifact(fn_id.clone(), name, ArtifactKind::Function, line);
+    let vis = extract_rust_visibility(node, s);
+    s.add_artifact_with_visibility(fn_id.clone(), name, ArtifactKind::Function, line, vis);
     s.contains(parent_id, &fn_id, line);
 
     if let Some(body) = node.child_by_field_name("body") {
@@ -176,7 +201,8 @@ fn emit_method(
     }
     let mid = format!("{}::method::{}", parent_id, name);
     let line = node.start_position().row + 1;
-    s.add_artifact(mid.clone(), name, ArtifactKind::Method, line);
+    let vis = extract_rust_visibility(node, s);
+    s.add_artifact_with_visibility(mid.clone(), name, ArtifactKind::Method, line, vis);
     s.contains(parent_id, &mid, line);
 
     if let Some(body) = node.child_by_field_name("body") {

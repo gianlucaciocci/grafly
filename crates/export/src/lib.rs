@@ -1,6 +1,6 @@
 //! grafly-export — write a dependency map to JSON / HTML.
 
-use grafly_core::{ArtifactKind, DependencyKind, DependencyMap};
+use grafly_core::{ArtifactKind, DependencyKind, DependencyMap, Visibility};
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use petgraph::visit::EdgeRef;
 use serde_json::{json, Value};
@@ -27,6 +27,11 @@ pub struct HtmlOptions {
     /// create supernode shortcuts; they're kept in the JSON but suppressed
     /// from the HTML to keep it readable.
     pub include_ambiguous: bool,
+    /// Include artifacts with `Visibility::Private`. Default `false` — internal
+    /// helpers crowd the view without changing the architectural shape.
+    /// Unknown-visibility artifacts (files, packages, namespaces) are always
+    /// kept regardless of this flag.
+    pub include_private: bool,
 }
 
 impl Default for HtmlOptions {
@@ -35,6 +40,7 @@ impl Default for HtmlOptions {
             max_nodes: Some(800),
             module_names: Vec::new(),
             include_ambiguous: false,
+            include_private: false,
         }
     }
 }
@@ -84,6 +90,7 @@ pub fn to_json(map: &DependencyMap) -> Value {
                 "module_id":      a.module_id,
                 "description":    a.description,
                 "is_entry_point": a.is_entry_point,
+                "visibility":     format!("{:?}", a.visibility),
             })
         })
         .collect();
@@ -120,7 +127,12 @@ pub fn write_html(
     opts: &HtmlOptions,
     path: &Path,
 ) -> Result<(), ExportError> {
-    let (kept_nodes, kept_edges) = select_for_viz(map, opts.max_nodes, opts.include_ambiguous);
+    let (kept_nodes, kept_edges) = select_for_viz(
+        map,
+        opts.max_nodes,
+        opts.include_ambiguous,
+        opts.include_private,
+    );
     let payload = filtered_artifact_payload(map, &kept_nodes, &kept_edges, &opts.module_names);
     let payload_json = serde_json::to_string(&payload)?;
     std::fs::write(path, build_artifact_html(&payload_json))?;
@@ -131,14 +143,22 @@ fn select_for_viz(
     map: &DependencyMap,
     max_nodes: Option<usize>,
     include_ambiguous: bool,
+    include_private: bool,
 ) -> (Vec<NodeIndex>, Vec<EdgeIndex>) {
-    let total = map.node_count();
+    let candidates: Vec<NodeIndex> = if include_private {
+        map.node_indices().collect()
+    } else {
+        map.node_indices()
+            .filter(|&n| !matches!(map[n].visibility, Visibility::Private))
+            .collect()
+    };
+    let total = candidates.len();
     let cap = max_nodes.filter(|n| *n < total);
 
     let kept_set: HashSet<NodeIndex> = if let Some(c) = cap {
-        let mut by_degree: Vec<(NodeIndex, usize)> = map
-            .node_indices()
-            .map(|n| {
+        let mut by_degree: Vec<(NodeIndex, usize)> = candidates
+            .iter()
+            .map(|&n| {
                 let d = map.edges_directed(n, petgraph::Direction::Outgoing).count()
                     + map.edges_directed(n, petgraph::Direction::Incoming).count();
                 (n, d)
@@ -147,7 +167,7 @@ fn select_for_viz(
         by_degree.sort_by(|a, b| b.1.cmp(&a.1));
         by_degree.iter().take(c).map(|(n, _)| *n).collect()
     } else {
-        map.node_indices().collect()
+        candidates.into_iter().collect()
     };
 
     let kept_edges: Vec<EdgeIndex> = map
@@ -188,6 +208,7 @@ fn filtered_artifact_payload(
                 "module_name":    module_label,
                 "description":    a.description,
                 "is_entry_point": a.is_entry_point,
+                "visibility":     format!("{:?}", a.visibility),
             })
         })
         .collect();

@@ -4,7 +4,7 @@
 //! - **Couplings**: dependencies that cross module boundaries.
 //! - **Insights**: suggested questions about the codebase architecture.
 
-use grafly_core::DependencyMap;
+use grafly_core::{DependencyMap, Visibility};
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use serde::Serialize;
@@ -14,6 +14,22 @@ pub struct Analysis {
     pub hotspots: Vec<Hotspot>,
     pub couplings: Vec<Coupling>,
     pub insights: Vec<String>,
+}
+
+/// Knobs for [`analyze_with_options`]. Defaults exclude Private symbols from
+/// hotspots and couplings so the report stays focused on the public surface
+/// area — flip `include_private` to surface internal helpers as well.
+#[derive(Debug, Clone, Copy)]
+pub struct AnalysisOptions {
+    pub include_private: bool,
+}
+
+impl Default for AnalysisOptions {
+    fn default() -> Self {
+        Self {
+            include_private: false,
+        }
+    }
 }
 
 /// An artifact whose degree is more than 2σ above the mean — likely an
@@ -40,8 +56,15 @@ pub struct Coupling {
 }
 
 pub fn analyze(map: &DependencyMap) -> Analysis {
-    let hotspots = find_hotspots(map);
-    let couplings = find_couplings(map);
+    analyze_with_options(map, AnalysisOptions::default())
+}
+
+/// Like [`analyze`] but applies [`AnalysisOptions`]. With default options,
+/// Private artifacts are excluded from hotspots and couplings — they're
+/// implementation details that shouldn't drive architectural recommendations.
+pub fn analyze_with_options(map: &DependencyMap, opts: AnalysisOptions) -> Analysis {
+    let hotspots = find_hotspots(map, opts.include_private);
+    let couplings = find_couplings(map, opts.include_private);
     let insights = generate_insights(map, &hotspots, &couplings);
 
     Analysis {
@@ -51,7 +74,14 @@ pub fn analyze(map: &DependencyMap) -> Analysis {
     }
 }
 
-fn find_hotspots(map: &DependencyMap) -> Vec<Hotspot> {
+/// True when this artifact should be excluded from the public surface of the
+/// architecture report. Only fires for explicitly Private symbols — Unknown
+/// (the default for files, packages, namespaces) is *not* filtered.
+fn is_private(map: &DependencyMap, idx: NodeIndex) -> bool {
+    matches!(map[idx].visibility, Visibility::Private)
+}
+
+fn find_hotspots(map: &DependencyMap, include_private: bool) -> Vec<Hotspot> {
     if map.node_count() < 3 {
         return vec![];
     }
@@ -82,6 +112,7 @@ fn find_hotspots(map: &DependencyMap) -> Vec<Hotspot> {
     let mut hotspots: Vec<Hotspot> = degrees
         .into_iter()
         .filter(|(_, d)| *d as f64 > threshold)
+        .filter(|(idx, _)| include_private || !is_private(map, *idx))
         .map(|(idx, degree)| Hotspot {
             index: idx,
             label: map[idx].display_label(),
@@ -94,13 +125,16 @@ fn find_hotspots(map: &DependencyMap) -> Vec<Hotspot> {
     hotspots
 }
 
-fn find_couplings(map: &DependencyMap) -> Vec<Coupling> {
+fn find_couplings(map: &DependencyMap, include_private: bool) -> Vec<Coupling> {
     let mut couplings: Vec<Coupling> = map
         .edge_references()
         .filter_map(|e| {
             let src = &map[e.source()];
             let dst = &map[e.target()];
             let edge = e.weight();
+            if !include_private && (is_private(map, e.source()) || is_private(map, e.target())) {
+                return None;
+            }
             match (src.module_id, dst.module_id) {
                 (Some(c1), Some(c2)) if c1 != c2 => Some(Coupling {
                     from_label: src.display_label(),

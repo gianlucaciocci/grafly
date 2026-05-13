@@ -1,5 +1,5 @@
 use crate::common::{classify_call_target, last_identifier, walk_descendants, Scanner};
-use grafly_core::{ArtifactKind, ScanResult};
+use grafly_core::{ArtifactKind, ScanResult, Visibility};
 use std::path::Path;
 use tree_sitter::{Node, Parser};
 
@@ -27,17 +27,17 @@ pub fn scan(path: &Path, source: &str) -> ScanResult {
     let mut cursor = root.walk();
 
     for child in root.children(&mut cursor) {
-        scan_js_node(&child, &file_id, &mut s);
+        scan_js_node(&child, &file_id, false, &mut s);
     }
 
     s.result
 }
 
-fn scan_js_node(child: &Node, file_id: &str, s: &mut Scanner) {
+fn scan_js_node(child: &Node, file_id: &str, exported: bool, s: &mut Scanner) {
     match child.kind() {
-        "class_declaration" => emit_class(child, file_id, s),
+        "class_declaration" => emit_class(child, file_id, exported, s),
 
-        "function_declaration" => emit_function(child, file_id, file_id, None, s),
+        "function_declaration" => emit_function(child, file_id, file_id, None, exported, s),
 
         "lexical_declaration" | "variable_declaration" => {
             let mut dc = child.walk();
@@ -53,7 +53,18 @@ fn scan_js_node(child: &Node, file_id: &str, s: &mut Scanner) {
                         }
                         let fn_id = format!("{}::fn::{}", file_id, name);
                         let line = decl.start_position().row + 1;
-                        s.add_artifact(fn_id.clone(), name, ArtifactKind::Function, line);
+                        let vis = if exported {
+                            Visibility::Public
+                        } else {
+                            Visibility::Private
+                        };
+                        s.add_artifact_with_visibility(
+                            fn_id.clone(),
+                            name,
+                            ArtifactKind::Function,
+                            line,
+                            vis,
+                        );
                         s.contains(file_id, &fn_id, line);
                         if let Some(body) = value.child_by_field_name("body") {
                             walk_for_calls(body, &fn_id, None, s);
@@ -75,9 +86,12 @@ fn scan_js_node(child: &Node, file_id: &str, s: &mut Scanner) {
             for inner in child.children(&mut ec) {
                 if matches!(
                     inner.kind(),
-                    "class_declaration" | "function_declaration"
+                    "class_declaration"
+                        | "function_declaration"
+                        | "lexical_declaration"
+                        | "variable_declaration"
                 ) {
-                    scan_js_node(&inner, file_id, s);
+                    scan_js_node(&inner, file_id, true, s);
                 }
             }
         }
@@ -86,14 +100,25 @@ fn scan_js_node(child: &Node, file_id: &str, s: &mut Scanner) {
     }
 }
 
-fn emit_class(node: &Node, file_id: &str, s: &mut Scanner) {
+fn emit_class(node: &Node, file_id: &str, exported: bool, s: &mut Scanner) {
     let name = s.field_text(node, "name");
     if name.is_empty() {
         return;
     }
     let class_id = format!("{}::class::{}", file_id, name);
     let line = node.start_position().row + 1;
-    s.add_artifact(class_id.clone(), name.clone(), ArtifactKind::Class, line);
+    let class_vis = if exported {
+        Visibility::Public
+    } else {
+        Visibility::Private
+    };
+    s.add_artifact_with_visibility(
+        class_id.clone(),
+        name.clone(),
+        ArtifactKind::Class,
+        line,
+        class_vis,
+    );
     s.contains(file_id, &class_id, line);
 
     if let Some(heritage) = node.child_by_field_name("heritage") {
@@ -121,7 +146,21 @@ fn emit_class(node: &Node, file_id: &str, s: &mut Scanner) {
                 }
                 let mid = format!("{}::method::{}", class_id, mname);
                 let mline = method.start_position().row + 1;
-                s.add_artifact(mid.clone(), mname, ArtifactKind::Method, mline);
+                // JS methods inherit their class's visibility — no per-method
+                // keyword in plain JS. Names starting with `#` are private
+                // (ES2022 private fields).
+                let mvis = if mname.starts_with('#') {
+                    Visibility::Private
+                } else {
+                    class_vis
+                };
+                s.add_artifact_with_visibility(
+                    mid.clone(),
+                    mname,
+                    ArtifactKind::Method,
+                    mline,
+                    mvis,
+                );
                 s.contains(&class_id, &mid, mline);
                 if let Some(mbody) = method.child_by_field_name("body") {
                     walk_for_calls(mbody, &mid, Some(&name), s);
@@ -136,6 +175,7 @@ fn emit_function(
     file_id: &str,
     parent_id: &str,
     enclosing_type: Option<&str>,
+    exported: bool,
     s: &mut Scanner,
 ) {
     let name = s.field_text(node, "name");
@@ -144,7 +184,12 @@ fn emit_function(
     }
     let fn_id = format!("{}::fn::{}", file_id, name);
     let line = node.start_position().row + 1;
-    s.add_artifact(fn_id.clone(), name, ArtifactKind::Function, line);
+    let vis = if exported {
+        Visibility::Public
+    } else {
+        Visibility::Private
+    };
+    s.add_artifact_with_visibility(fn_id.clone(), name, ArtifactKind::Function, line, vis);
     s.contains(parent_id, &fn_id, line);
     if let Some(body) = node.child_by_field_name("body") {
         walk_for_calls(body, &fn_id, enclosing_type, s);

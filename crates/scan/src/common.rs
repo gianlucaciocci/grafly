@@ -2,7 +2,7 @@
 
 use grafly_core::{
     ArtifactKind, Confidence, DependencyKind, RawArtifact, RawDependency, ScanResult,
-    UnresolvedReference,
+    UnresolvedReference, Visibility,
 };
 use tree_sitter::Node;
 
@@ -41,6 +41,7 @@ impl<'src> Scanner<'src> {
             source_line: 0,
             description: None,
             is_entry_point: false,
+            visibility: Visibility::Unknown,
         });
     }
 
@@ -53,6 +54,30 @@ impl<'src> Scanner<'src> {
             source_line: line,
             description: None,
             is_entry_point: false,
+            visibility: Visibility::Unknown,
+        });
+    }
+
+    /// Like [`add_artifact`](Self::add_artifact) but records a known visibility.
+    /// Use from language scanners that have detected `pub` / `export` / leading
+    /// underscore / Go capitalization, etc.
+    pub fn add_artifact_with_visibility(
+        &mut self,
+        id: String,
+        label: String,
+        kind: ArtifactKind,
+        line: usize,
+        visibility: Visibility,
+    ) {
+        self.result.artifacts.push(RawArtifact {
+            id,
+            label,
+            kind,
+            source_file: self.file_id.clone(),
+            source_line: line,
+            description: None,
+            is_entry_point: false,
+            visibility,
         });
     }
 
@@ -293,6 +318,72 @@ pub fn last_identifier(text: &str) -> String {
     }
     // strip parens/whitespace
     result.trim_matches(|c: char| !c.is_alphanumeric() && c != '_').to_string()
+}
+
+/// Visibility from Go-style "first letter capitalisation" rule.
+/// Public when the leading letter is uppercase; otherwise Private.
+pub fn visibility_from_go_name(name: &str) -> Visibility {
+    match name.chars().next() {
+        Some(c) if c.is_uppercase() => Visibility::Public,
+        Some(_) => Visibility::Private,
+        None => Visibility::Unknown,
+    }
+}
+
+/// Visibility from Python's leading-underscore convention.
+/// Names starting with `_` (single or double) are treated as Private; anything
+/// else is Public. Double-underscore *dunder* names (e.g. `__init__`,
+/// `__repr__`) are Public — they're language protocol, not internal helpers.
+pub fn visibility_from_python_name(name: &str) -> Visibility {
+    if name.starts_with("__") && name.ends_with("__") && name.len() >= 4 {
+        return Visibility::Public;
+    }
+    if name.starts_with('_') {
+        Visibility::Private
+    } else {
+        Visibility::Public
+    }
+}
+
+#[cfg(test)]
+mod visibility_tests {
+    use super::*;
+
+    #[test]
+    fn go_capitalised_is_public() {
+        assert_eq!(visibility_from_go_name("Foo"), Visibility::Public);
+        assert_eq!(visibility_from_go_name("ParseAll"), Visibility::Public);
+    }
+
+    #[test]
+    fn go_lowercase_is_private() {
+        assert_eq!(visibility_from_go_name("foo"), Visibility::Private);
+        assert_eq!(visibility_from_go_name("parseAll"), Visibility::Private);
+    }
+
+    #[test]
+    fn go_empty_is_unknown() {
+        assert_eq!(visibility_from_go_name(""), Visibility::Unknown);
+    }
+
+    #[test]
+    fn python_underscore_is_private() {
+        assert_eq!(visibility_from_python_name("_helper"), Visibility::Private);
+        assert_eq!(visibility_from_python_name("_x"), Visibility::Private);
+    }
+
+    #[test]
+    fn python_dunder_is_public() {
+        // Language protocol methods, not internal helpers
+        assert_eq!(visibility_from_python_name("__init__"), Visibility::Public);
+        assert_eq!(visibility_from_python_name("__repr__"), Visibility::Public);
+    }
+
+    #[test]
+    fn python_no_underscore_is_public() {
+        assert_eq!(visibility_from_python_name("foo"), Visibility::Public);
+        assert_eq!(visibility_from_python_name("Foo"), Visibility::Public);
+    }
 }
 
 /// Iteratively walk every descendant of `root` (excluding `root` itself)

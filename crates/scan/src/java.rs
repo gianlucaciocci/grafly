@@ -1,5 +1,5 @@
 use crate::common::{classify_call_target, last_identifier, walk_descendants, Scanner};
-use grafly_core::{ArtifactKind, ScanResult};
+use grafly_core::{ArtifactKind, ScanResult, Visibility};
 use std::path::Path;
 use tree_sitter::{Node, Parser};
 
@@ -35,7 +35,8 @@ pub fn scan(path: &Path, source: &str) -> ScanResult {
                 if !name.is_empty() {
                     let line = child.start_position().row + 1;
                     let id = format!("{}::enum::{}", file_id, name);
-                    s.add_artifact(id.clone(), name, ArtifactKind::Enum, line);
+                    let vis = extract_java_visibility(&child, &s);
+                    s.add_artifact_with_visibility(id.clone(), name, ArtifactKind::Enum, line, vis);
                     s.contains(&file_id, &id, line);
                 }
             }
@@ -59,7 +60,14 @@ fn emit_class(node: &Node, file_id: &str, s: &mut Scanner) {
     }
     let class_id = format!("{}::class::{}", file_id, name);
     let line = node.start_position().row + 1;
-    s.add_artifact(class_id.clone(), name.clone(), ArtifactKind::Class, line);
+    let vis = extract_java_visibility(node, s);
+    s.add_artifact_with_visibility(
+        class_id.clone(),
+        name.clone(),
+        ArtifactKind::Class,
+        line,
+        vis,
+    );
     s.contains(file_id, &class_id, line);
 
     if let Some(sup) = node.child_by_field_name("superclass") {
@@ -105,7 +113,14 @@ fn emit_interface(node: &Node, file_id: &str, s: &mut Scanner) {
     }
     let id = format!("{}::interface::{}", file_id, name);
     let line = node.start_position().row + 1;
-    s.add_artifact(id.clone(), name.clone(), ArtifactKind::Interface, line);
+    let vis = extract_java_visibility(node, s);
+    s.add_artifact_with_visibility(
+        id.clone(),
+        name.clone(),
+        ArtifactKind::Interface,
+        line,
+        vis,
+    );
     s.contains(file_id, &id, line);
 
     let mut nc = node.walk();
@@ -140,12 +155,35 @@ fn emit_method(node: &Node, parent_id: &str, enclosing_type: &str, s: &mut Scann
     }
     let mid = format!("{}::method::{}", parent_id, name);
     let line = node.start_position().row + 1;
-    s.add_artifact(mid.clone(), name, ArtifactKind::Method, line);
+    let vis = extract_java_visibility(node, s);
+    s.add_artifact_with_visibility(mid.clone(), name, ArtifactKind::Method, line, vis);
     s.contains(parent_id, &mid, line);
 
     if let Some(body) = node.child_by_field_name("body") {
         walk_for_calls(body, &mid, Some(enclosing_type), s);
     }
+}
+
+/// Read the `modifiers` child of a Java declaration and classify into
+/// [`Visibility`]. `public` → Public, `private` → Private, `protected` /
+/// no modifier (package-private) → Crate.
+fn extract_java_visibility(node: &Node, s: &Scanner) -> Visibility {
+    let mut c = node.walk();
+    for child in node.children(&mut c) {
+        if child.kind() != "modifiers" {
+            continue;
+        }
+        let mut mc = child.walk();
+        for m in child.children(&mut mc) {
+            match s.text(&m).trim() {
+                "public" => return Visibility::Public,
+                "private" => return Visibility::Private,
+                "protected" => return Visibility::Crate,
+                _ => {}
+            }
+        }
+    }
+    Visibility::Crate
 }
 
 fn walk_for_calls(body: Node, caller_id: &str, enclosing_type: Option<&str>, s: &mut Scanner) {
