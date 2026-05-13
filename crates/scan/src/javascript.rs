@@ -245,4 +245,7 @@ const JS_BUILTINS: &[&str] = &[
     "push", "pop", "shift", "unshift", "slice", "splice", "concat",
     "map", "filter", "reduce", "forEach", "find", "some", "every",
     "toString", "valueOf", "hasOwnProperty",
+    // DOM Node.contains / NodeList.contains are common stdlib hits; filter so
+    // they don't unique-bind to any user-defined `contains` method.
+    "contains", "includes",
 ];

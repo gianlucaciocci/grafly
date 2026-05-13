@@ -122,6 +122,7 @@ Output files (all in `./grafly-out/` by default):
 | `grafly_modules.html` | Interactive module-level overview (Leiden modules as nodes, edges grouped by relationship kind) |
 | `grafly_packages.html` | Interactive package-level overview (Cargo/pyproject/package.json/go.mod packages as nodes, cross-package edges; binaries coloured distinctly from libraries) |
 | `grafly_artifacts.html` | Interactive artifact-level graph (top-N by degree, Ambiguous edges suppressed for clarity) |
+| `SUGGESTED_QUESTIONS.md` | Kickoff list of architectural questions grouped by which grafly file answers them, with a section for an LLM to fill in project-specific versions |
 
 ## Make Grafly Discoverable to LLM Agents
 
@@ -173,21 +174,24 @@ The MCP server exposes ten tools: `analyze`, `get_artifacts`, `get_modules`,
 Other entries in the same config file are preserved — grafly only mutates its
 own `grafly` server entry.
 
-### The `/grafly` slash command (Claude Code)
+### The `/grafly-*` slash commands (Claude Code)
 
-When you run `grafly mcp install` with the Claude Code client, two extra
-files are installed automatically:
+When you run `grafly mcp install` with the Claude Code client, two skill briefs
+plus a marker-bracketed registration in `~/.claude/CLAUDE.md` are installed
+automatically:
 
-- `~/.claude/skills/grafly/SKILL.md` — the skill brief that tells Claude how
-  to route a user's question to the right MCP tool (e.g. "list the modules"
-  → `grafly:get_modules`, "what's a hotspot here" → `grafly:get_hotspots`).
-- A marker-bracketed registration in `~/.claude/CLAUDE.md` so Claude knows
-  the skill exists.
+| Slash command | What it does |
+|---|---|
+| `/grafly-ask` | Ask any architectural / structural question — overview, modules, hotspots, cross-module couplings, "how does X connect to Y", "what depends on Z" — and the skill routes to the right `grafly-mcp:*` MCP tool. Falls back to `./grafly-out/grafly_report.md` if the MCP server isn't connected. |
+| `/grafly-suggest-questions` | Bootstrap a project-specific question list: reads `./grafly-out/SUGGESTED_QUESTIONS.md` + `grafly_report.md`, resolves the placeholders (`<ARTIFACT>` / `<MODULE>` / `<PACKAGE>`) to real names from this codebase, appends a dated section, and surfaces the top 10 as a menu in chat. Useful as a kick-off for onboarding or code review. |
 
-After install, typing `/grafly` in a Claude Code session invokes the skill,
-which uses the MCP tools to answer architecture and codebase questions with
-`source_file:line` citations. `grafly mcp uninstall` removes the skill and
-registration alongside the MCP entry.
+The same suggested-questions workflow is also wired into the install templates
+for every other LLM tool (`grafly install --all`), so agents that don't support
+Claude Code skills still know to consult `SUGGESTED_QUESTIONS.md` when the user
+asks "what can I ask about this codebase?" or "where do I start?".
+
+`grafly mcp uninstall` removes both skills and the registration alongside the
+MCP server entry.
 
 ---
 
@@ -202,7 +206,7 @@ Add to your `~/.claude/settings.json` (or project `.claude/settings.json`):
 ```json
 {
   "mcpServers": {
-    "grafly": {
+    "grafly-mcp": {
       "command": "grafly-mcp",
       "args": []
     }

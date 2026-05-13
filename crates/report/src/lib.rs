@@ -274,6 +274,130 @@ pub fn generate_markdown(
     md
 }
 
+/// Generate `SUGGESTED_QUESTIONS.md` — a kickoff list of architecture questions
+/// grouped by which grafly output file answers them. Project-agnostic, so the
+/// same template ships for every analysis. The CLI prints a hint after the
+/// run inviting the user to ask their LLM to append project-specific questions
+/// to this file (the LLM can fill in concrete artifact / module / package
+/// names from `grafly_report.md` or `grafly_knowledge.json`).
+pub fn generate_suggested_questions() -> String {
+    String::from(
+        r#"# Suggested Questions
+
+> **For developers**: every question below is prefixed with `/grafly-ask` so
+> you can copy/paste any line straight into Claude Code (or another LLM with
+> grafly's instructions installed) and get a routed answer. Replace any
+> `<PLACEHOLDER>` with a real name from the codebase before sending.
+
+> **For LLM agents**: when extending the **Project-specific questions**
+> section at the bottom of this file, keep the `/grafly-ask` prefix on every
+> question you add — that makes each line a runnable prompt the user can
+> copy/paste verbatim.
+
+---
+
+## From `grafly_report.md` (no graph traversal needed)
+
+### Architecture overview
+- /grafly-ask What are the main subsystems in this codebase?
+- /grafly-ask How is the project organised at the package level?
+- /grafly-ask What does the `<PACKAGE>` package contain?
+- /grafly-ask Which packages have binary entry points?
+- /grafly-ask What's inside the `<MODULE>` module?
+
+### Hotspots & risk
+- /grafly-ask What are the biggest architectural bottlenecks?
+- /grafly-ask Which components would be hardest to refactor?
+- /grafly-ask What would break if I changed `<ARTIFACT>`?
+- /grafly-ask Is `<ARTIFACT>` a god object? Why does it have so many connections?
+- /grafly-ask Which artifacts appear in multiple hotspots-style lists?
+
+### Cross-module couplings
+- /grafly-ask Are there any unexpected dependencies between modules?
+- /grafly-ask Which modules are most tightly coupled?
+- /grafly-ask Show me the coupling between `<MODULE_A>` and `<MODULE_B>` with file:line citations.
+- /grafly-ask Are there circular dependencies between any modules?
+
+### Intra-package structure
+- /grafly-ask What are the internal clusters inside `<PACKAGE>`?
+- /grafly-ask How is `<PACKAGE>` decomposed internally?
+- /grafly-ask What subsystems exist within the `<PACKAGE>` adapter / layer?
+
+---
+
+## From `grafly_knowledge.json` (graph traversal)
+
+### Path & flow queries
+- /grafly-ask What's the shortest path from `<ARTIFACT_A>` to `<ARTIFACT_B>`?
+- /grafly-ask How does `<ENTRY_POINT>` connect to `<TARGET>`?
+- /grafly-ask Trace how `<DATA>` flows from `<SOURCE>` to `<SINK>`.
+- /grafly-ask How does `<MIDDLEWARE>` intercept calls between `<CALLER>` and `<CALLEE>`?
+
+### Dependency analysis
+- /grafly-ask What does `<ARTIFACT>` depend on?
+- /grafly-ask Who calls `<FUNCTION>`?
+- /grafly-ask What are all the callers of `<FUNCTION>`?
+- /grafly-ask Which structs implement the `<TRAIT_OR_INTERFACE>` trait?
+- /grafly-ask What extends `<CLASS_OR_TRAIT>`?
+
+### Impact analysis
+- /grafly-ask If I modify `<ARTIFACT>`, which modules are affected?
+- /grafly-ask What would break if I change the `<ARTIFACT>` API?
+- /grafly-ask Which packages depend on `<PACKAGE>`?
+- /grafly-ask How many components depend on `<METHOD>`?
+
+### Comparison & similarity
+- /grafly-ask What do `<ARTIFACT_A>` and `<ARTIFACT_B>` have in common?
+- /grafly-ask Which `<KIND>`s share the most code structure?
+- /grafly-ask Are `<ARTIFACT_A>` and `<ARTIFACT_B>` structured similarly?
+
+---
+
+## From the HTML visualisations
+
+### `grafly_modules.html`
+- /grafly-ask Show me the high-level module dependency map.
+- /grafly-ask Which module clusters are isolated vs tightly connected?
+- /grafly-ask What's the relationship between the `<MODULE_A>` and `<MODULE_B>` modules?
+
+### `grafly_artifacts.html`
+- /grafly-ask Show me the neighbourhood of `<ARTIFACT>`.
+- /grafly-ask What does the dependency graph look like around `<ARTIFACT>`?
+- /grafly-ask Which artifacts bridge the most modules?
+
+### `grafly_packages.html`
+- /grafly-ask How do the packages depend on each other?
+- /grafly-ask Which package is the most depended-upon?
+- /grafly-ask Are there any packages that depend on adapter-specific / leaf packages?
+
+---
+
+## Onboarding & code review
+
+- /grafly-ask I'm new to this codebase — where should I start reading?
+- /grafly-ask What are the 5 most important files to understand the architecture?
+- /grafly-ask I need to add a new `<FEATURE_KIND>` — what pattern should I follow?
+- /grafly-ask What's the difference between `<MODE_A>` and `<MODE_B>` at the code level?
+- /grafly-ask I need to add a new `<EXTENSION>` — what modules will I need to touch?
+- /grafly-ask Is the codebase well-modularised, or are there signs of architectural decay?
+- /grafly-ask Which parts of the codebase are most at risk of becoming legacy?
+
+---
+
+## Project-specific questions
+
+> **For LLM agents**: append project-specific versions of the questions above
+> here, with `<PLACEHOLDERS>` resolved to real names you see in
+> `grafly_report.md` / `grafly_knowledge.json`. **Keep the `/grafly-ask` prefix
+> on every question you write** so each line is a runnable slash command.
+> The richer this section gets, the more useful this file becomes as a
+> starting point for future sessions.
+
+<!-- Append project-specific questions below this line -->
+"#,
+    )
+}
+
 /// Generate the README.md that grafly writes alongside its output files.
 ///
 /// This is the first thing an LLM agent (or human) encounters when they
@@ -296,6 +420,7 @@ pub fn generate_output_readme() -> String {
 | `grafly_knowledge.json` | Full directed dependency map — artifacts, dependencies, module assignments, source lines, confidence levels | Path-finding, neighbor queries, custom analysis, programmatic use |
 | `grafly_modules.html` | Interactive module-level overview (modules as nodes, edges grouped by relationship kind) | Visualising the codebase's high-level shape |
 | `grafly_artifacts.html` | Interactive artifact-level view (top-N artifacts by degree, Ambiguous edges suppressed) | Inspecting specific components and their immediate neighbourhood |
+| `SUGGESTED_QUESTIONS.md` | Kickoff list of architectural questions grouped by which grafly file answers them. Has a "Project-specific questions" section for LLMs to append concrete, name-filled versions to | Bootstrapping a conversation about the codebase |
 
 ## How an LLM should use these files
 

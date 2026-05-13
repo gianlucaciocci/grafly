@@ -320,8 +320,9 @@ fn run_mcp_install(args: McpInstallArgs) -> Result<()> {
         );
     }
 
-    // When Claude Code is among the targets, also install the `/grafly` skill
-    // so the user has a slash command that routes to the MCP tools.
+    // When Claude Code is among the targets, also install the grafly slash
+    // commands (/grafly-ask, /grafly-suggest-questions) so the user has
+    // dedicated entry points that route to the MCP tools.
     if installs_claude_code {
         for o in skill::install_claude_skill()? {
             println!("  [{:>9}] {:<28} {}", o.action, o.label, o.path.display());
@@ -334,8 +335,8 @@ fn run_mcp_install(args: McpInstallArgs) -> Result<()> {
     );
     if installs_claude_code {
         println!(
-            "In Claude Code, type `/grafly` to invoke the skill — it routes the user's question \
-             to the right MCP tool."
+            "In Claude Code, type `/grafly-ask` to send a codebase question to the right MCP \
+             tool, or `/grafly-suggest-questions` to bootstrap a project-specific question list."
         );
     }
     Ok(())
@@ -597,17 +598,43 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
     std::fs::write(&readme_path, grafly_report::generate_output_readme())?;
     println!("  wrote {}", readme_path.display());
 
+    let questions_path = cli.output.join("SUGGESTED_QUESTIONS.md");
+    std::fs::write(&questions_path, grafly_report::generate_suggested_questions())?;
+    println!("  wrote {}", questions_path.display());
+
     println!("\ndone.");
+
     if report_path.is_some() {
+        // The "Next steps" block is shown first — most users haven't installed
+        // grafly's LLM rules yet, and the suggested-questions hint below is far
+        // more useful once those rules are in place.
         println!(
-            "\nNext steps — make this analysis discoverable to LLM agents:\n\
-             \n  1. Append grafly's rules to your LLM tool's instructions file:\n\
+            "\nNext steps — make this analysis discoverable to your LLM:\n\
+             \n  1. Append grafly's rules to your LLM tool's instructions file (so any agent\n\
+             \n     working in this project knows how to use ./grafly-out/):\n\
              \n         grafly install                  # default: Claude Code (./CLAUDE.md)\n\
              \n         grafly install --all            # every supported platform\n\
-             \n  2. Register the MCP server so agents can call grafly's tools live:\n\
+             \n  2. Register the MCP server so agents can query the dependency map live:\n\
              \n         grafly mcp install              # default: Claude Code (./.mcp.json)\n\
-             \n         grafly mcp install --all        # every supported MCP client\n"
+             \n         grafly mcp install --all        # every supported MCP client\n\
+             \n     The Claude Code install also wires the /grafly-ask and /grafly-suggest-questions\n\
+             \n     slash commands.\n"
         );
     }
+
+    // The "kick-start" hint goes last so it's the most recent thing in the
+    // user's terminal — easiest to copy/paste from there.
+    println!("Kick-start a conversation with your LLM. Copy/paste this:");
+    println!();
+    println!(
+        "  > Read {} and {} and append a \"Project-specific questions\" section to {} with the placeholders resolved to real artifact, module, and package names you find. Then suggest the 10 most valuable questions to ask first.",
+        cli.output.join("grafly_report.md").display(),
+        cli.output.join("grafly_knowledge.json").display(),
+        questions_path.display(),
+    );
+    println!();
+    println!(
+        "  (Or, once `grafly install` + `grafly mcp install` are done, just type /grafly-suggest-questions in Claude Code.)"
+    );
     Ok(())
 }
