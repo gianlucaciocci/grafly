@@ -12,10 +12,10 @@
 //! 2. Adding a single marker-bracketed registration to `~/.claude/CLAUDE.md`
 //!    so the agent knows both slash commands exist.
 //!
-//! All of the above is installed when `grafly mcp install --client claude-code`
-//! runs. `grafly mcp uninstall --client claude-code` removes them cleanly, and
-//! the install also sweeps up legacy skill directories from older grafly
-//! versions (see [`LEGACY_SKILL_NAMES`]).
+//! All of the above is installed when `grafly install` runs against the
+//! `claude` target (the default). `grafly uninstall --platform claude`
+//! removes them cleanly, and the install also sweeps up legacy skill
+//! directories from older grafly versions (see [`LEGACY_SKILL_NAMES`]).
 
 use anyhow::{Context, Result};
 use std::fs;
@@ -166,7 +166,7 @@ fn home_dir() -> Result<PathBuf> {
         .context("could not resolve home directory (set USERPROFILE or HOME)")
 }
 
-/// All Claude Code skills shipped by `grafly mcp install --client claude-code`,
+/// All Claude Code skills shipped by `grafly install --platform claude`,
 /// keyed by their slash-command name. Iterating this list keeps install and
 /// uninstall symmetric — adding a new skill is one row here, not a refactor.
 const SKILLS: &[(&str, &str)] = &[
@@ -175,7 +175,7 @@ const SKILLS: &[(&str, &str)] = &[
 ];
 
 /// Older skill directory names that grafly used to install. Listed here so
-/// `grafly mcp install` and `grafly mcp uninstall` clean them up on upgrade —
+/// `grafly install` and `grafly uninstall` clean them up on upgrade —
 /// otherwise a user who installed an older grafly would be left with a stale
 /// `/grafly` slash command pointing at out-of-date content.
 const LEGACY_SKILL_NAMES: &[&str] = &["grafly"];

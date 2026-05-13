@@ -33,29 +33,8 @@ pub enum Platform {
     Gemini,
 }
 
-impl Platform {
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            Platform::Claude => "Claude Code",
-            Platform::Agents => "AGENTS.md (Codex / Aider / OpenCode / generic)",
-            Platform::Cursor => "Cursor",
-            Platform::Copilot => "GitHub Copilot",
-            Platform::Windsurf => "Windsurf",
-            Platform::Gemini => "Gemini CLI",
-        }
-    }
-
-    pub fn all() -> &'static [Platform] {
-        &[
-            Platform::Claude,
-            Platform::Agents,
-            Platform::Cursor,
-            Platform::Copilot,
-            Platform::Windsurf,
-            Platform::Gemini,
-        ]
-    }
-}
+// Note: `Platform` is internal — user-facing CLI uses `Target`. We deliberately
+// don't expose `display_name`/`all` here; per-target display lives on `Target`.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Scope {
@@ -158,6 +137,9 @@ fn home_dir() -> Result<PathBuf> {
 // ── Install / uninstall a single platform ────────────────────────────────────
 
 pub struct InstallOutcome {
+    // `platform` is carried for callers that want to correlate the result;
+    // the CLI prints per target so it doesn't read this field directly.
+    #[allow(dead_code)]
     pub platform: Platform,
     pub path: PathBuf,
     pub action: &'static str, // "created", "updated", "unchanged"
@@ -238,6 +220,7 @@ pub fn install_platform(
 }
 
 pub struct UninstallOutcome {
+    #[allow(dead_code)]
     pub platform: Platform,
     pub path: PathBuf,
     pub action: &'static str, // "removed", "deleted", "absent"
@@ -296,6 +279,29 @@ pub fn uninstall_platform(
             path,
             action: "removed",
         })
+    }
+}
+
+/// Return the path where grafly's rules are currently installed for `platform`,
+/// if a marker-bracketed section is present (or, for Cursor's dedicated .mdc,
+/// if the file exists). `None` for "not installed".
+///
+/// Used by `grafly list` to render one row per target. Cheap I/O — read the
+/// file once and look for our marker.
+pub fn list_marker_path(platform: Platform, scope: Scope, project_root: &Path) -> Option<PathBuf> {
+    let path = target_path(platform, scope, project_root).ok()?;
+    if !path.exists() {
+        return None;
+    }
+    // Cursor's `.mdc` is wholly ours — existence is enough.
+    if platform == Platform::Cursor {
+        return Some(path);
+    }
+    let raw = fs::read_to_string(&path).ok()?;
+    if raw.contains(MARKER_START) && raw.contains(MARKER_END) {
+        Some(path)
+    } else {
+        None
     }
 }
 

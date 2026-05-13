@@ -1,5 +1,7 @@
-//! `grafly mcp install` — register the `grafly-mcp` server in MCP clients'
-//! configuration files (Claude Code, Claude Desktop, Cursor, Windsurf, VS Code).
+//! Register the `grafly-mcp` server in MCP clients' configuration files
+//! (Claude Code, Claude Desktop, Cursor, Windsurf, VS Code). Internal helper
+//! module — driven by `target::install_target` when the chosen target
+//! supports an MCP surface. Not exposed as its own CLI subcommand.
 //!
 //! Each client expects a JSON configuration file with a server registry under
 //! a key like `mcpServers` or `servers`. We merge into the existing file
@@ -28,26 +30,6 @@ pub enum McpClient {
 }
 
 impl McpClient {
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            McpClient::ClaudeCode => "Claude Code",
-            McpClient::ClaudeDesktop => "Claude Desktop",
-            McpClient::Cursor => "Cursor",
-            McpClient::Windsurf => "Windsurf",
-            McpClient::Vscode => "VS Code",
-        }
-    }
-
-    pub fn all() -> &'static [McpClient] {
-        &[
-            McpClient::ClaudeCode,
-            McpClient::ClaudeDesktop,
-            McpClient::Cursor,
-            McpClient::Windsurf,
-            McpClient::Vscode,
-        ]
-    }
-
     fn supports(&self, scope: Scope) -> bool {
         match (self, scope) {
             (McpClient::ClaudeCode, _) => true,
@@ -211,6 +193,9 @@ fn which_on_path(name: &str) -> Option<std::path::PathBuf> {
 
 #[derive(Debug)]
 pub struct McpOutcome {
+    // `client` is carried so callers can correlate the result back to which
+    // client they asked for, even though the CLI currently prints by target.
+    #[allow(dead_code)]
     pub client: McpClient,
     pub path: PathBuf,
     pub action: &'static str, // "created" | "updated" | "unchanged" | "removed" | "absent"
@@ -365,17 +350,6 @@ pub fn uninstall_mcp(client: McpClient, scope: Scope, root: &Path) -> Result<Mcp
     })
 }
 
-/// Report which clients currently have `grafly-mcp` registered.
-pub fn list_mcp(scope: Scope, root: &Path) -> Result<Vec<(McpClient, Option<PathBuf>)>> {
-    let mut out = Vec::new();
-    for &client in McpClient::all() {
-        let path = config_path(client, scope, root).ok();
-        let installed = path.as_ref().is_some_and(|p| has_grafly_entry(p, client));
-        out.push((client, if installed { path } else { None }));
-    }
-    Ok(out)
-}
-
 fn has_grafly_entry(path: &Path, client: McpClient) -> bool {
     let Ok(raw) = fs::read_to_string(path) else {
         return false;
@@ -386,6 +360,18 @@ fn has_grafly_entry(path: &Path, client: McpClient) -> bool {
     doc.get(servers_key(client))
         .and_then(|v| v.get(SERVER_NAME))
         .is_some()
+}
+
+/// Return the config-file path where `grafly-mcp` is currently registered for
+/// `client`, if the server entry is present. `None` for "not installed".
+/// Used by `grafly list` so it can render one row per target.
+pub fn list_marker_mcp_path(client: McpClient, scope: Scope, root: &Path) -> Option<PathBuf> {
+    let path = config_path(client, scope, root).ok()?;
+    if has_grafly_entry(&path, client) {
+        Some(path)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
