@@ -18,3 +18,5 @@ rayon     = { workspace = true }
 ignore    = { workspace = true }
 anyhow    = { workspace = true }
 thiserror = { workspace = true }
+serde     = { workspace = true }
+toml      = { workspace = true }

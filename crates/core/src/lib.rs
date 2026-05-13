@@ -26,6 +26,9 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArtifactKind {
+    /// A buildable unit declared in a manifest (`Cargo.toml`, `pyproject.toml`,
+    /// `package.json`, `go.mod`). Sits above File in the containment hierarchy.
+    Package,
     File,
     Namespace,
     Class,

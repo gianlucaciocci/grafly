@@ -270,6 +270,7 @@ fn kind_priority(kind: &ArtifactKind) -> u8 {
         ArtifactKind::Function | ArtifactKind::Method => 3,
         ArtifactKind::Enum | ArtifactKind::Namespace => 2,
         ArtifactKind::File => 1,
-        ArtifactKind::Import => 0,
+        // Package and Import are containers/symbolic, not naming candidates.
+        ArtifactKind::Import | ArtifactKind::Package => 0,
     }
 }
