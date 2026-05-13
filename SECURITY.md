@@ -37,10 +37,11 @@ Grafly is a **local development tool**. It parses source files with tree-sitter 
 | Path traversal in install / uninstall | Target paths (`~/.claude/CLAUDE.md`, `~/.cursor/rules/...`, etc.) are computed deterministically per platform from a fixed table — not derived from untrusted input. The install flow only writes between fixed marker comments (`<!-- grafly-section-start -->` … `<!-- grafly-section-end -->`) so existing user content is preserved. |
 | MCP server attack surface | The MCP server communicates over **stdio only**. There is no network listener, no port binding, and no remote transport. Each tool call re-runs the pipeline against a caller-supplied directory path, which is treated as filesystem input only. |
 | Pipeline crashes on adversarial input | CPU-bound work in the MCP server runs via `tokio::task::block_in_place` so a slow parse cannot starve the runtime. Errors from any pipeline stage are converted to JSON error responses rather than propagated as panics. |
+| XSS via adversarial identifier names in HTML export | The JSON payload embedded in each generated HTML view is unicode-escaped (`<`, `>`, `&` → `<`, `>`, `&`) before being written into a `<script type="application/json">` data tag; the page reads it back via `JSON.parse(textContent)`. A `</script>` substring in any artifact label or id cannot terminate the data tag, and the data tag never executes as JavaScript regardless. |
 
 ### Known limitations
 
-- **HTML export does not HTML-escape user-controlled labels.** Artifact labels come from source-file identifiers and are embedded inside `<script>` tags as a JSON payload consumed by `vis-network`. Forward-slash escaping (`</script>` → `<\/script>`) is not applied. A maliciously named identifier in an analysed codebase could theoretically break out of the script context. Tracked in [#42](https://github.com/gianlucaciocci/grafly/issues/42); until fixed, if you are analysing untrusted code, treat the generated HTML as untrusted and open it only in a sandboxed browser profile.
+(no currently tracked limitations — see the `area:security` label on GitHub Issues for any open items.)
 
 ### What grafly does NOT do
 
