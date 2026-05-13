@@ -129,10 +129,12 @@ generic template.
    if the MCP server is connected.
 5. **Append a "Project-specific questions" section to `SUGGESTED_QUESTIONS.md`.**
    Look for the marker `<!-- Append project-specific questions below this line -->`
-   in the file and add a new dated section *below* it. Resolve every
-   `<PLACEHOLDER>` to a real name — for example:
-   - `What does the <PACKAGE> contain?` → `What does the nautilus-execution crate contain?`
-   - `Who calls <FUNCTION>?` → `Who calls get_message_bus?`
+   in the file and add a new dated section *below* it. Every question MUST be
+   prefixed with `/grafly-ask ` (with the trailing space) so the user can
+   copy/paste each line straight into Claude Code as a slash command. Resolve
+   every `<PLACEHOLDER>` to a real name — for example:
+   - `- /grafly-ask What does the <PACKAGE> contain?` → `- /grafly-ask What does the nautilus-execution crate contain?`
+   - `- /grafly-ask Who calls <FUNCTION>?` → `- /grafly-ask Who calls get_message_bus?`
    Pick 15-25 questions across categories, with a bias toward what looks most
    architecturally interesting *in this codebase* (e.g. unusually large
    modules, surprising couplings, god-object-shaped hotspots).
