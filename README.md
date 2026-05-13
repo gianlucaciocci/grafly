@@ -122,6 +122,7 @@ Output files (all in `./grafly-out/` by default):
 | `grafly_modules.html` | Interactive module-level overview (Leiden modules as nodes, edges grouped by relationship kind) |
 | `grafly_packages.html` | Interactive package-level overview (Cargo/pyproject/package.json/go.mod packages as nodes, cross-package edges; binaries coloured distinctly from libraries) |
 | `grafly_artifacts.html` | Interactive artifact-level graph (top-N by degree, Ambiguous edges suppressed for clarity) |
+| `SUGGESTED_QUESTIONS.md` | Kickoff list of architectural questions grouped by which grafly file answers them, with a section for an LLM to fill in project-specific versions |
 
 ## Make Grafly Discoverable to LLM Agents
 

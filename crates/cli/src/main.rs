@@ -597,7 +597,20 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
     std::fs::write(&readme_path, grafly_report::generate_output_readme())?;
     println!("  wrote {}", readme_path.display());
 
+    let questions_path = cli.output.join("SUGGESTED_QUESTIONS.md");
+    std::fs::write(&questions_path, grafly_report::generate_suggested_questions())?;
+    println!("  wrote {}", questions_path.display());
+
     println!("\ndone.");
+    println!();
+    println!("Kick-start a conversation with your LLM. Copy/paste this:");
+    println!();
+    println!(
+        "  > Read {} and {} and append a \"Project-specific questions\" section to {} with the placeholders resolved to real artifact, module, and package names you find. Then suggest the 10 most valuable questions to ask first.",
+        cli.output.join("grafly_report.md").display(),
+        cli.output.join("grafly_knowledge.json").display(),
+        questions_path.display(),
+    );
     if report_path.is_some() {
         println!(
             "\nNext steps — make this analysis discoverable to LLM agents:\n\
