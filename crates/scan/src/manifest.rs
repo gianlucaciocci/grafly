@@ -157,7 +157,11 @@ pub fn parse_go_mod_str(source: &str, path: &Path) -> Option<Manifest> {
     }
     // Use the last path segment as the human-readable name
     // (e.g. `github.com/foo/bar` → `bar`).
-    let name = module_path.rsplit('/').next().unwrap_or(module_path).to_string();
+    let name = module_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(module_path)
+        .to_string();
     let (manifest_path, root_dir) = paths(path)?;
     Some(Manifest {
         name,
@@ -171,12 +175,8 @@ pub fn parse_go_mod_str(source: &str, path: &Path) -> Option<Manifest> {
 // ── Discovery dispatch ────────────────────────────────────────────────────────
 
 /// File names this module knows how to parse.
-pub const KNOWN_MANIFEST_FILENAMES: &[&str] = &[
-    "Cargo.toml",
-    "pyproject.toml",
-    "package.json",
-    "go.mod",
-];
+pub const KNOWN_MANIFEST_FILENAMES: &[&str] =
+    &["Cargo.toml", "pyproject.toml", "package.json", "go.mod"];
 
 /// Parse any supported manifest by inspecting its filename. Returns `None`
 /// for unsupported filenames or unparseable / virtual manifests.
@@ -355,8 +355,10 @@ mod tests {
 
     #[test]
     fn package_json_without_name_is_skipped() {
-        assert!(parse_package_json_str(r#"{ "version": "1.0.0" }"#, Path::new("./package.json"))
-            .is_none());
+        assert!(
+            parse_package_json_str(r#"{ "version": "1.0.0" }"#, Path::new("./package.json"))
+                .is_none()
+        );
     }
 
     // ── go.mod ────────────────────────────────────────────────────────────────
@@ -374,8 +376,7 @@ mod tests {
 
     #[test]
     fn go_mod_handles_local_module_path() {
-        let m = parse_go_mod_str("module example\n", Path::new("./go.mod"))
-            .expect("should parse");
+        let m = parse_go_mod_str("module example\n", Path::new("./go.mod")).expect("should parse");
         assert_eq!(m.name, "example");
     }
 

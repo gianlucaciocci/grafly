@@ -8,13 +8,10 @@
 //! but we don't know which artifact node that name refers to yet.
 //!
 //! `MapBuilder::build()` runs a resolution pass that uses two indexes:
-//! - `name_index`:   simple-name → [NodeIndex]   — for bare function calls,
-//!                                                 unqualified type references
+//! - `name_index`: simple-name → [NodeIndex] — for bare function calls and
+//!   unqualified type references.
 //! - `method_index`: (type_name, method) → [NodeIndex] — for receiver-typed
-//!                                                       method calls like
-//!                                                       `self.foo()` inside
-//!                                                       `impl Bar` or
-//!                                                       `Foo::new()` qualified.
+//!   method calls like `self.foo()` inside `impl Bar` or `Foo::new()`.
 //!
 //! Receiver-typed lookups are the antidote to the "supernode" problem (every
 //! `Foo::new()` resolving to a single global `new` node). When a scanner can
@@ -74,18 +71,13 @@ pub enum Confidence {
 ///
 /// `Unknown` is the default for kinds where visibility isn't tracked (files,
 /// packages, namespaces) and for languages that haven't been wired up.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Visibility {
     Public,
     Crate,
     Private,
+    #[default]
     Unknown,
-}
-
-impl Default for Visibility {
-    fn default() -> Self {
-        Visibility::Unknown
-    }
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]

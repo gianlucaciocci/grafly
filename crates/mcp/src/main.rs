@@ -146,15 +146,19 @@ struct PipelineResult {
     analysis: grafly_analyze::Analysis,
 }
 
-fn run_pipeline(path: PathBuf, resolution: f64, seed: Option<u64>) -> Result<PipelineResult, String> {
+fn run_pipeline(
+    path: PathBuf,
+    resolution: f64,
+    seed: Option<u64>,
+) -> Result<PipelineResult, String> {
     let scan = grafly_scan::scan_dir(&path).map_err(|e| e.to_string())?;
 
     let mut builder = MapBuilder::new();
     builder.add_scan(scan);
     let mut map = builder.build();
 
-    let modules = grafly_cluster::detect_modules(&mut map, resolution, seed)
-        .map_err(|e| e.to_string())?;
+    let modules =
+        grafly_cluster::detect_modules(&mut map, resolution, seed).map_err(|e| e.to_string())?;
 
     let analysis = grafly_analyze::analyze(&map);
 
@@ -178,9 +182,11 @@ impl GraflyServer {
     /// Run the full grafly pipeline on a directory.
     /// Returns artifact/dependency/module counts, quality score, hotspots,
     /// and insights about the codebase architecture.
-    #[tool(description = "Run the full grafly pipeline on a directory. Returns a JSON summary \
+    #[tool(
+        description = "Run the full grafly pipeline on a directory. Returns a JSON summary \
         with artifact/dependency/module counts, Leiden quality score, hotspots \
-        (high-centrality artifacts), and insights about the codebase architecture.")]
+        (high-centrality artifacts), and insights about the codebase architecture."
+    )]
     fn analyze(&self, Parameters(p): Parameters<AnalyzeParams>) -> String {
         let path = PathBuf::from(&p.path);
         let resolution = p.resolution.unwrap_or(1.0);
@@ -215,16 +221,18 @@ impl GraflyServer {
                         .collect(),
                     insights: r.analysis.insights.clone(),
                 };
-                serde_json::to_string_pretty(&summary).unwrap_or_else(|e| json_err(e))
+                serde_json::to_string_pretty(&summary).unwrap_or_else(json_err)
             }
         }
     }
 
     /// Return artifacts, optionally filtered by kind or module.
-    #[tool(description = "List artifacts in the dependency map, optionally filtered by kind \
+    #[tool(
+        description = "List artifacts in the dependency map, optionally filtered by kind \
         (Package, File, Class, Struct, Enum, Interface, Trait, Function, Method, Namespace, Import) \
         or by module ID. Useful for exploring what lives in a specific module or finding \
-        all classes/functions in the codebase.")]
+        all classes/functions in the codebase."
+    )]
     fn get_artifacts(&self, Parameters(p): Parameters<GetArtifactsParams>) -> String {
         let path = PathBuf::from(&p.path);
 
@@ -260,16 +268,18 @@ impl GraflyServer {
                     })
                     .collect();
 
-                serde_json::to_string_pretty(&artifacts).unwrap_or_else(|e| json_err(e))
+                serde_json::to_string_pretty(&artifacts).unwrap_or_else(json_err)
             }
         }
     }
 
     /// Return module breakdown with sizes and representative artifact labels.
-    #[tool(description = "Return the module breakdown detected by Leiden clustering. \
+    #[tool(
+        description = "Return the module breakdown detected by Leiden clustering. \
         Each module entry includes its ID, size (artifact count), and a sample of \
         representative artifact labels. Use this to understand the high-level structure \
-        of a codebase.")]
+        of a codebase."
+    )]
     fn get_modules(&self, Parameters(p): Parameters<PathParams>) -> String {
         let path = PathBuf::from(&p.path);
 
@@ -308,16 +318,18 @@ impl GraflyServer {
                     })
                     .collect();
 
-                modules.sort_by(|a, b| b.size.cmp(&a.size));
-                serde_json::to_string_pretty(&modules).unwrap_or_else(|e| json_err(e))
+                modules.sort_by_key(|m| std::cmp::Reverse(m.size));
+                serde_json::to_string_pretty(&modules).unwrap_or_else(json_err)
             }
         }
     }
 
     /// Return hotspots — high-centrality artifacts that may be bottlenecks.
-    #[tool(description = "Return hotspots — high-centrality artifacts whose degree is more \
+    #[tool(
+        description = "Return hotspots — high-centrality artifacts whose degree is more \
         than 2 standard deviations above the mean. These are likely architectural \
-        bottlenecks or utility modules that many other components depend on.")]
+        bottlenecks or utility modules that many other components depend on."
+    )]
     fn get_hotspots(&self, Parameters(p): Parameters<PathParams>) -> String {
         let path = PathBuf::from(&p.path);
 
@@ -336,15 +348,17 @@ impl GraflyServer {
                         source_file: h.source_file.clone(),
                     })
                     .collect();
-                serde_json::to_string_pretty(&hotspots).unwrap_or_else(|e| json_err(e))
+                serde_json::to_string_pretty(&hotspots).unwrap_or_else(json_err)
             }
         }
     }
 
     /// Return cross-module couplings.
-    #[tool(description = "Return cross-module couplings — dependencies between artifacts in \
+    #[tool(
+        description = "Return cross-module couplings — dependencies between artifacts in \
         different modules. These highlight unexpected coupling between modules and are \
-        good candidates for architectural review.")]
+        good candidates for architectural review."
+    )]
     fn get_couplings(&self, Parameters(p): Parameters<PathParams>) -> String {
         let path = PathBuf::from(&p.path);
 
@@ -367,15 +381,17 @@ impl GraflyServer {
                         source_line: c.source_line,
                     })
                     .collect();
-                serde_json::to_string_pretty(&couplings).unwrap_or_else(|e| json_err(e))
+                serde_json::to_string_pretty(&couplings).unwrap_or_else(json_err)
             }
         }
     }
 
     /// Return suggested insights about the codebase.
-    #[tool(description = "Return a list of insights about the codebase, generated from \
+    #[tool(
+        description = "Return a list of insights about the codebase, generated from \
         the dependency map structure. Use these as starting points for architectural \
-        review or onboarding conversations.")]
+        review or onboarding conversations."
+    )]
     fn get_insights(&self, Parameters(p): Parameters<PathParams>) -> String {
         let path = PathBuf::from(&p.path);
 
@@ -383,20 +399,21 @@ impl GraflyServer {
 
         match result {
             Err(e) => json_err(e),
-            Ok(r) => serde_json::to_string_pretty(&r.analysis.insights)
-                .unwrap_or_else(|e| json_err(e)),
+            Ok(r) => serde_json::to_string_pretty(&r.analysis.insights).unwrap_or_else(json_err),
         }
     }
 
     /// Export the dependency map to files (JSON, HTML, Markdown).
-    #[tool(description = "Export the dependency map to one or more file formats. \
+    #[tool(
+        description = "Export the dependency map to one or more file formats. \
         Supported formats (comma-separated): json, html, html-modules, html-packages, md. \
         json — raw map data; html — artifact-level interactive graph (top-N by degree); \
         html-modules — module-level overview (modules as nodes, aggregated cross-module \
         edges grouped by relationship kind); html-packages — package-level overview \
         (Cargo/pyproject/package.json/go.mod packages as nodes, cross-package edges); \
         md — Markdown report with packages, modules, hotspots, and insights. \
-        Returns the list of written file paths.")]
+        Returns the list of written file paths."
+    )]
     fn export(&self, Parameters(p): Parameters<ExportParams>) -> String {
         let path = PathBuf::from(&p.path);
         let output = PathBuf::from(&p.output);
@@ -434,7 +451,9 @@ impl GraflyServer {
 
                 // Always emit README.md alongside any other format
                 let readme_path = output.join("README.md");
-                if let Err(e) = std::fs::write(&readme_path, grafly_report::generate_output_readme()) {
+                if let Err(e) =
+                    std::fs::write(&readme_path, grafly_report::generate_output_readme())
+                {
                     return json_err(e);
                 }
                 written.push(readme_path.to_string_lossy().to_string());
@@ -468,7 +487,8 @@ impl GraflyServer {
                         }
                         "md" => {
                             let p = output.join("grafly_report.md");
-                            let md = grafly_report::generate_markdown(&map, &modules, &analysis, None);
+                            let md =
+                                grafly_report::generate_markdown(&map, &modules, &analysis, None);
                             std::fs::write(&p, md)
                                 .map_err(|e| e.to_string())
                                 .map(|_| written.push(p.to_string_lossy().to_string()))
@@ -480,20 +500,22 @@ impl GraflyServer {
                     }
                 }
 
-                serde_json::to_string_pretty(&written).unwrap_or_else(|e| json_err(e))
+                serde_json::to_string_pretty(&written).unwrap_or_else(json_err)
             }
         }
     }
 
     /// Find the shortest path between two artifacts.
-    #[tool(description = "Find the shortest path between two artifacts in the dependency map. \
+    #[tool(
+        description = "Find the shortest path between two artifacts in the dependency map. \
         By default uses weighted edges so the path prefers high-confidence call chains \
         (Calls=1) over file-level co-occurrence (Imports=5, References/Uses=10) — \
         important for message-bus architectures where the call chain reveals \
         the mediation that imports don't. Returns a JSON object with the full path, \
         per-hop kind/confidence/source_line, and total weight. Pass `weighted=false` \
         for raw shortest path by hop count. Pass `min_confidence` to exclude \
-        Inferred/Ambiguous edges entirely.")]
+        Inferred/Ambiguous edges entirely."
+    )]
     fn find_path(&self, Parameters(p): Parameters<FindPathParams>) -> String {
         let path = PathBuf::from(&p.path);
         let result = tokio::task::block_in_place(|| run_pipeline(path, 1.0, None));
@@ -522,7 +544,7 @@ impl GraflyServer {
                     min_confidence: min_conf,
                 };
                 match grafly_query::find_path(&r.map, from, to, &opts) {
-                    Some(path) => serde_json::to_string_pretty(&path).unwrap_or_else(|e| json_err(e)),
+                    Some(path) => serde_json::to_string_pretty(&path).unwrap_or_else(json_err),
                     None => "null".to_string(),
                 }
             }
@@ -530,13 +552,15 @@ impl GraflyServer {
     }
 
     /// Get the BFS neighborhood of an artifact.
-    #[tool(description = "Return a depth-limited subgraph centered on an artifact. \
+    #[tool(
+        description = "Return a depth-limited subgraph centered on an artifact. \
         By default only follows runtime-meaningful edges (Calls/Extends/Implements/Contains) \
         and skips expansion through supernodes (degree > 200) to avoid pulling in \
         thousands of unrelated nodes via common types like `from_str` or `UUID4`. \
         Set `include_imports=true` to also follow Imports/References edges. \
         Returns artifacts, dependencies, and a list of supernodes that were treated \
-        as boundary nodes.")]
+        as boundary nodes."
+    )]
     fn get_neighbors(&self, Parameters(p): Parameters<GetNeighborsParams>) -> String {
         let path = PathBuf::from(&p.path);
         let result = tokio::task::block_in_place(|| run_pipeline(path, 1.0, None));
@@ -565,15 +589,17 @@ impl GraflyServer {
                     max_degree: Some(p.max_degree.unwrap_or(200)),
                 };
                 let sub = grafly_query::neighbors(&r.map, center, &opts);
-                serde_json::to_string_pretty(&sub).unwrap_or_else(|e| json_err(e))
+                serde_json::to_string_pretty(&sub).unwrap_or_else(json_err)
             }
         }
     }
 
     /// Get the artifacts that depend on the target (incoming subgraph).
-    #[tool(description = "Return the artifacts that depend on a target artifact — \
+    #[tool(
+        description = "Return the artifacts that depend on a target artifact — \
         the incoming-direction BFS subgraph. Answers the question \"who uses this?\". \
-        Same defaults as get_neighbors (runtime edges only, supernode cap at degree 200).")]
+        Same defaults as get_neighbors (runtime edges only, supernode cap at degree 200)."
+    )]
     fn get_dependents(&self, Parameters(p): Parameters<GetDependentsParams>) -> String {
         let path = PathBuf::from(&p.path);
         let result = tokio::task::block_in_place(|| run_pipeline(path, 1.0, None));
@@ -586,7 +612,7 @@ impl GraflyServer {
                     Err(e) => return json_err(e),
                 };
                 let sub = grafly_query::ancestors(&r.map, target, p.depth.unwrap_or(2));
-                serde_json::to_string_pretty(&sub).unwrap_or_else(|e| json_err(e))
+                serde_json::to_string_pretty(&sub).unwrap_or_else(json_err)
             }
         }
     }

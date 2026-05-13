@@ -19,17 +19,9 @@ pub struct Analysis {
 /// Knobs for [`analyze_with_options`]. Defaults exclude Private symbols from
 /// hotspots and couplings so the report stays focused on the public surface
 /// area — flip `include_private` to surface internal helpers as well.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct AnalysisOptions {
     pub include_private: bool,
-}
-
-impl Default for AnalysisOptions {
-    fn default() -> Self {
-        Self {
-            include_private: false,
-        }
-    }
 }
 
 /// An artifact whose degree is more than 2σ above the mean — likely an
@@ -89,12 +81,8 @@ fn find_hotspots(map: &DependencyMap, include_private: bool) -> Vec<Hotspot> {
     let degrees: Vec<(NodeIndex, usize)> = map
         .node_indices()
         .map(|n| {
-            let degree = map
-                .edges_directed(n, petgraph::Direction::Outgoing)
-                .count()
-                + map
-                    .edges_directed(n, petgraph::Direction::Incoming)
-                    .count();
+            let degree = map.edges_directed(n, petgraph::Direction::Outgoing).count()
+                + map.edges_directed(n, petgraph::Direction::Incoming).count();
             (n, degree)
         })
         .collect();
@@ -121,7 +109,7 @@ fn find_hotspots(map: &DependencyMap, include_private: bool) -> Vec<Hotspot> {
         })
         .collect();
 
-    hotspots.sort_by(|a, b| b.degree.cmp(&a.degree));
+    hotspots.sort_by_key(|h| std::cmp::Reverse(h.degree));
     hotspots
 }
 
@@ -150,9 +138,7 @@ fn find_couplings(map: &DependencyMap, include_private: bool) -> Vec<Coupling> {
         })
         .collect();
 
-    couplings.sort_by_key(|c| {
-        (c.from_module as isize - c.to_module as isize).unsigned_abs()
-    });
+    couplings.sort_by_key(|c| (c.from_module as isize - c.to_module as isize).unsigned_abs());
     couplings.reverse();
     couplings
 }
@@ -167,9 +153,7 @@ fn generate_insights(
     for h in hotspots.iter().take(3) {
         insights.push(format!(
             "`{}` ({}) is a hotspot with {} connections — consider splitting it.",
-            h.label,
-            h.source_file,
-            h.degree
+            h.label, h.source_file, h.degree
         ));
     }
 

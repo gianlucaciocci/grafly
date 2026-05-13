@@ -88,7 +88,10 @@ fn emit_class(node: &Node, file_id: &str, s: &mut Scanner) {
     if let Some(args) = node.child_by_field_name("superclasses") {
         let mut ac = args.walk();
         for arg in args.children(&mut ac) {
-            if matches!(arg.kind(), "identifier" | "attribute" | "subscript" | "call") {
+            if matches!(
+                arg.kind(),
+                "identifier" | "attribute" | "subscript" | "call"
+            ) {
                 let raw = s.text(&arg).to_string();
                 let base_name = last_identifier(&raw);
                 if !base_name.is_empty() && base_name != name {
@@ -191,12 +194,63 @@ fn node_text<'a>(node: &Node, source: &'a [u8]) -> &'a str {
 }
 
 const PYTHON_BUILTINS: &[&str] = &[
-    "print", "len", "range", "list", "dict", "set", "tuple", "str", "int", "float",
-    "bool", "type", "isinstance", "hasattr", "getattr", "setattr", "open", "iter",
-    "next", "map", "filter", "zip", "sorted", "reversed", "enumerate", "any", "all",
-    "min", "max", "sum", "abs", "round", "repr", "id", "hash", "vars", "dir",
-    "super", "callable", "format", "input",
+    "print",
+    "len",
+    "range",
+    "list",
+    "dict",
+    "set",
+    "tuple",
+    "str",
+    "int",
+    "float",
+    "bool",
+    "type",
+    "isinstance",
+    "hasattr",
+    "getattr",
+    "setattr",
+    "open",
+    "iter",
+    "next",
+    "map",
+    "filter",
+    "zip",
+    "sorted",
+    "reversed",
+    "enumerate",
+    "any",
+    "all",
+    "min",
+    "max",
+    "sum",
+    "abs",
+    "round",
+    "repr",
+    "id",
+    "hash",
+    "vars",
+    "dir",
+    "super",
+    "callable",
+    "format",
+    "input",
     // Common method names that won't resolve usefully without proper type inference
-    "append", "extend", "pop", "remove", "insert", "get", "keys", "values", "items",
-    "join", "split", "strip", "lower", "upper", "replace", "startswith", "endswith",
+    "append",
+    "extend",
+    "pop",
+    "remove",
+    "insert",
+    "get",
+    "keys",
+    "values",
+    "items",
+    "join",
+    "split",
+    "strip",
+    "lower",
+    "upper",
+    "replace",
+    "startswith",
+    "endswith",
 ];

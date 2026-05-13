@@ -11,9 +11,7 @@
 //! Design rationale for the weights and BFS filters: see the
 //! `future_improvements.md` memory under "### 3. Querying API → Design constraints".
 
-use grafly_core::{
-    Artifact, Confidence, Dependency, DependencyKind, DependencyMap,
-};
+use grafly_core::{Artifact, Confidence, Dependency, DependencyKind, DependencyMap};
 use petgraph::algo::astar;
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use petgraph::visit::EdgeRef;
@@ -208,7 +206,11 @@ pub fn find_path(
         if !edge_allowed(d, &opts.allowed_kinds, &opts.min_confidence) {
             return f64::INFINITY;
         }
-        if opts.weighted { weight_of(d) } else { 1.0 }
+        if opts.weighted {
+            weight_of(d)
+        } else {
+            1.0
+        }
     };
 
     let (total, nodes) = astar(map, from, |n| n == to, edge_cost, |_| 0.0)?;
@@ -231,8 +233,16 @@ pub fn find_path(
             .edges_connecting(a, b)
             .filter(|e| edge_allowed(e.weight(), &opts.allowed_kinds, &opts.min_confidence))
             .min_by(|x, y| {
-                let wx = if opts.weighted { weight_of(x.weight()) } else { 1.0 };
-                let wy = if opts.weighted { weight_of(y.weight()) } else { 1.0 };
+                let wx = if opts.weighted {
+                    weight_of(x.weight())
+                } else {
+                    1.0
+                };
+                let wy = if opts.weighted {
+                    weight_of(y.weight())
+                } else {
+                    1.0
+                };
                 wx.partial_cmp(&wy).unwrap_or(std::cmp::Ordering::Equal)
             })
             .map(|e| e.weight().clone())?;
@@ -357,7 +367,11 @@ pub fn neighbors(map: &DependencyMap, center: NodeIndex, opts: &SubgraphOptions)
                     source_line: e.weight().source_line,
                 });
 
-                let other = if *dir == Direction::Outgoing { dst } else { src };
+                let other = if *dir == Direction::Outgoing {
+                    dst
+                } else {
+                    src
+                };
 
                 if visited_nodes.insert(other) {
                     if let Some(cap) = opts.max_degree {
@@ -473,7 +487,10 @@ mod tests {
         let c = resolve(&map, "C").unwrap();
 
         let path = find_path(&map, a, c, &PathOptions::default()).expect("path exists");
-        assert_eq!(path.total_hops, 2, "should route through B (Calls=1+1=2), not direct Imports (=5)");
+        assert_eq!(
+            path.total_hops, 2,
+            "should route through B (Calls=1+1=2), not direct Imports (=5)"
+        );
         assert_eq!(path.hops[0].to.label, "B");
         assert_eq!(path.hops[1].to.label, "C");
     }
@@ -499,7 +516,10 @@ mod tests {
         let a = resolve(&map, "A").unwrap();
         let c = resolve(&map, "C").unwrap();
 
-        let opts = PathOptions { weighted: false, ..Default::default() };
+        let opts = PathOptions {
+            weighted: false,
+            ..Default::default()
+        };
         let path = find_path(&map, a, c, &opts).expect("path exists");
         assert_eq!(path.total_hops, 1);
     }
@@ -613,7 +633,10 @@ mod tests {
             main_package_dirs: vec![],
         };
         let map = build_map(scan);
-        assert!(matches!(resolve(&map, "new"), Err(QueryError::Ambiguous { .. })));
+        assert!(matches!(
+            resolve(&map, "new"),
+            Err(QueryError::Ambiguous { .. })
+        ));
         // But the exact ID still works.
         assert!(resolve(&map, "a.rs::fn::new").is_ok());
     }

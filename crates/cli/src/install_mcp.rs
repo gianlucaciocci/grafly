@@ -138,7 +138,11 @@ fn server_entry(bin: &str) -> Value {
 /// many MCP clients spawn via Node's `child_process.spawn`, which doesn't
 /// consult `PATHEXT` the way `cmd`/`powershell` do.
 fn bare_bin_name() -> &'static str {
-    if cfg!(windows) { "grafly-mcp.exe" } else { "grafly-mcp" }
+    if cfg!(windows) {
+        "grafly-mcp.exe"
+    } else {
+        "grafly-mcp"
+    }
 }
 
 /// Determine the command grafly should write into a client's MCP registry.
@@ -201,22 +205,16 @@ pub struct McpOutcome {
     pub action: &'static str, // "created" | "updated" | "unchanged" | "removed" | "absent"
 }
 
-pub fn install_mcp(
-    client: McpClient,
-    scope: Scope,
-    root: &Path,
-    bin: &str,
-) -> Result<McpOutcome> {
+pub fn install_mcp(client: McpClient, scope: Scope, root: &Path, bin: &str) -> Result<McpOutcome> {
     let path = config_path(client, scope, root)?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
 
     let existed = path.exists();
     let mut doc: Value = if existed {
-        let raw = fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let raw =
+            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         if raw.trim().is_empty() {
             Value::Object(Map::new())
         } else {
@@ -228,10 +226,7 @@ pub fn install_mcp(
     };
 
     if !doc.is_object() {
-        return Err(anyhow!(
-            "config at {} is not a JSON object",
-            path.display()
-        ));
+        return Err(anyhow!("config at {} is not a JSON object", path.display()));
     }
 
     let key = servers_key(client);
@@ -282,8 +277,7 @@ pub fn uninstall_mcp(client: McpClient, scope: Scope, root: &Path) -> Result<Mcp
         });
     }
 
-    let raw = fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let raw = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     if raw.trim().is_empty() {
         return Ok(McpOutcome {
             client,
@@ -330,8 +324,7 @@ pub fn uninstall_mcp(client: McpClient, scope: Scope, root: &Path) -> Result<Mcp
 
     // If the whole file is now an empty object, delete it (we created it).
     if root_obj.is_empty() {
-        fs::remove_file(&path)
-            .with_context(|| format!("removing {}", path.display()))?;
+        fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
         return Ok(McpOutcome {
             client,
             path,
@@ -415,8 +408,14 @@ mod tests {
         install_mcp(McpClient::ClaudeCode, Scope::Project, &dir, "grafly-mcp").unwrap();
 
         let content: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        assert!(content.pointer("/mcpServers/other").is_some(), "other should survive");
-        assert!(content.pointer("/mcpServers/grafly-mcp").is_some(), "grafly-mcp added");
+        assert!(
+            content.pointer("/mcpServers/other").is_some(),
+            "other should survive"
+        );
+        assert!(
+            content.pointer("/mcpServers/grafly-mcp").is_some(),
+            "grafly-mcp added"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
