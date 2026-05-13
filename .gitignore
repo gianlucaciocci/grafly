@@ -2,5 +2,6 @@
 /grafly-out
 CLAUDE.md
 .claude
+.mcp.json
 *.excalidraw
 *.excalidraw.*

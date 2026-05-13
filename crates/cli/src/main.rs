@@ -1,14 +1,15 @@
 mod install;
 mod install_mcp;
 mod skill;
+mod target;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
-use install::{Platform, Scope};
-use install_mcp::McpClient;
+use install::Scope;
 use std::path::PathBuf;
 use std::time::Duration;
+use target::Target;
 
 fn spinner(prefix: &'static str) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
@@ -53,55 +54,41 @@ struct Cli {
 enum Command {
     /// Analyze a codebase and emit the dependency map (default).
     Analyze(AnalyzeArgs),
-    /// Install grafly's instructions into an LLM tool's config so any agent
-    /// working in this project uses `./grafly-out/` as the source of truth.
+    /// Wire grafly into an LLM tool: rules file + MCP server + (for Claude
+    /// Code) the `/grafly-*` slash commands. All-or-nothing per target — the
+    /// user doesn't get to install just one piece.
     Install(InstallArgs),
-    /// Remove grafly's instructions from an LLM tool's config.
-    Uninstall(InstallArgs),
-    /// Register / unregister the `grafly-mcp` MCP server in MCP clients.
-    #[command(subcommand)]
-    Mcp(McpCommand),
-}
-
-#[derive(Subcommand)]
-enum McpCommand {
-    /// Register `grafly-mcp` in an MCP client's config (so the client can call grafly's tools).
-    Install(McpInstallArgs),
-    /// Remove `grafly-mcp` from an MCP client's config.
-    Uninstall(McpInstallArgs),
-    /// Show which MCP clients have `grafly-mcp` registered.
-    List(McpListArgs),
+    /// Remove every grafly artifact (rules block, MCP entry, Claude Code
+    /// skills) from the target's config files.
+    Uninstall(UninstallArgs),
+    /// Show which targets currently have grafly installed, and where.
+    List(ListArgs),
 }
 
 #[derive(Args)]
-struct McpInstallArgs {
-    /// Target MCP client. Repeatable. Omit to use the default (`claude-code`).
-    #[arg(short, long, value_enum)]
-    client: Vec<McpClient>,
-
-    /// Install on every supported client.
-    #[arg(long, default_value_t = false)]
-    all: bool,
-
-    /// Project- or user-global config. Some clients only support one; we
-    /// silently fall back to whichever is valid.
+struct ListArgs {
+    /// Scope to inspect (project vs user-global). Targets that only support
+    /// one scope are reported under that scope regardless.
     #[arg(short, long, value_enum, default_value_t = Scope::Project)]
     scope: Scope,
 
-    /// Project root for project-scope installs.
+    /// Project root.
     #[arg(long, default_value = ".")]
     root: PathBuf,
-
-    /// Path to the `grafly-mcp` binary the client should launch.
-    /// Defaults to a sibling of the current `grafly` executable, or `grafly-mcp`
-    /// on PATH if no sibling is found.
-    #[arg(long)]
-    bin: Option<PathBuf>,
 }
 
 #[derive(Args)]
-struct McpListArgs {
-    /// Scope to inspect for project-aware clients.
+struct UninstallArgs {
+    /// Target LLM tool. Repeatable. Omit to use the default (`claude`).
+    #[arg(short, long, value_enum)]
+    platform: Vec<Target>,
+
+    /// Uninstall from every supported target.
+    #[arg(long, default_value_t = false)]
+    all: bool,
+
+    /// Project- or user-global config. Targets that only support one scope
+    /// silently fall back to the supported one.
     #[arg(short, long, value_enum, default_value_t = Scope::Project)]
     scope: Scope,
 
@@ -115,10 +102,6 @@ struct AnalyzeArgs {
     /// Directory to scan (defaults to current directory)
     #[arg(default_value = ".")]
     path: PathBuf,
-
-    /// Output directory
-    #[arg(short, long, default_value = "./grafly-out")]
-    output: PathBuf,
 
     /// Leiden resolution — higher values produce more, smaller modules
     #[arg(short, long, default_value_t = 1.0)]
@@ -187,15 +170,18 @@ struct AnalyzeArgs {
 #[derive(Args)]
 struct InstallArgs {
     /// Target LLM tool. Repeatable. Omit to use the default (`claude`).
+    /// Each target installs every surface it supports — rules file, MCP
+    /// server registry, and (for Claude Code) the `/grafly-*` skills.
     #[arg(short, long, value_enum)]
-    platform: Vec<Platform>,
+    platform: Vec<Target>,
 
-    /// Install on every supported platform.
+    /// Install on every supported target.
     #[arg(long, default_value_t = false)]
     all: bool,
 
     /// Where to write — `project` (current directory) or `global` (user home).
-    /// `global` only affects platforms that support it (`claude`, `agents`, `gemini`).
+    /// Targets that only support one scope (e.g. Claude Desktop is global;
+    /// VS Code is project) silently fall back to the supported one.
     #[arg(short, long, value_enum, default_value_t = Scope::Project)]
     scope: Scope,
 
@@ -203,10 +189,11 @@ struct InstallArgs {
     #[arg(long, default_value = ".")]
     root: PathBuf,
 
-    /// Output directory referenced by the installed instructions.
-    /// Should match the `--output` you pass to `grafly analyze`.
-    #[arg(long, default_value = "./grafly-out")]
-    output_dir: PathBuf,
+    /// Path to the `grafly-mcp` binary the MCP-aware targets should launch.
+    /// Defaults to the bare name `grafly-mcp` when on PATH, otherwise the
+    /// sibling of the current `grafly` executable.
+    #[arg(long)]
+    bin: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -218,7 +205,7 @@ fn main() -> Result<()> {
         let first = argv[1].as_str();
         let known = matches!(
             first,
-            "analyze" | "install" | "uninstall" | "mcp" | "help"
+            "analyze" | "install" | "uninstall" | "list" | "help"
                 | "-h" | "--help" | "-V" | "--version"
         );
         if !known {
@@ -231,156 +218,130 @@ fn main() -> Result<()> {
         Command::Analyze(args) => run_analyze(args),
         Command::Install(args) => run_install(args),
         Command::Uninstall(args) => run_uninstall(args),
-        Command::Mcp(McpCommand::Install(args)) => run_mcp_install(args),
-        Command::Mcp(McpCommand::Uninstall(args)) => run_mcp_uninstall(args),
-        Command::Mcp(McpCommand::List(args)) => run_mcp_list(args),
+        Command::List(args) => run_list(args),
     }
 }
 
-// ── Install / Uninstall ──────────────────────────────────────────────────────
+// ── Install / Uninstall / List ───────────────────────────────────────────────
 
-fn resolve_platforms(args: &InstallArgs) -> Vec<Platform> {
+fn resolve_targets_install(args: &InstallArgs) -> Vec<Target> {
     if args.all {
-        Platform::all().to_vec()
+        Target::all().to_vec()
     } else if args.platform.is_empty() {
-        vec![Platform::Claude]
+        vec![Target::Claude]
+    } else {
+        args.platform.clone()
+    }
+}
+
+fn resolve_targets_uninstall(args: &UninstallArgs) -> Vec<Target> {
+    if args.all {
+        Target::all().to_vec()
+    } else if args.platform.is_empty() {
+        vec![Target::Claude]
     } else {
         args.platform.clone()
     }
 }
 
 fn run_install(args: InstallArgs) -> Result<()> {
-    let platforms = resolve_platforms(&args);
-    let output_str = args.output_dir.to_string_lossy().replace('\\', "/");
-    println!("grafly install");
-    for platform in platforms {
-        let outcome =
-            install::install_platform(platform, args.scope, &args.root, &output_str)?;
-        println!(
-            "  [{:>9}] {:<48} {}",
-            outcome.action,
-            outcome.platform.display_name(),
-            outcome.path.display()
-        );
-    }
-    println!(
-        "\nAny LLM agent reading these files will now look for `{}` first when answering codebase questions.",
-        output_str
-    );
-    println!("Run `grafly analyze .` to produce/refresh the analysis.");
-    Ok(())
-}
-
-fn run_uninstall(args: InstallArgs) -> Result<()> {
-    let platforms = resolve_platforms(&args);
-    println!("grafly uninstall");
-    for platform in platforms {
-        let outcome = install::uninstall_platform(platform, args.scope, &args.root)?;
-        println!(
-            "  [{:>9}] {:<48} {}",
-            outcome.action,
-            outcome.platform.display_name(),
-            outcome.path.display()
-        );
-    }
-    Ok(())
-}
-
-// ── MCP install / uninstall / list ───────────────────────────────────────────
-
-fn resolve_mcp_clients(args: &McpInstallArgs) -> Vec<McpClient> {
-    if args.all {
-        McpClient::all().to_vec()
-    } else if args.client.is_empty() {
-        vec![McpClient::ClaudeCode]
-    } else {
-        args.client.clone()
-    }
-}
-
-fn run_mcp_install(args: McpInstallArgs) -> Result<()> {
-    let clients = resolve_mcp_clients(&args);
+    let targets = resolve_targets_install(&args);
     let bin = args
         .bin
         .as_ref()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(install_mcp::default_mcp_bin);
 
-    let installs_claude_code = clients.iter().any(|c| *c == McpClient::ClaudeCode);
-
-    println!("grafly mcp install");
+    println!("grafly install");
     println!("  binary : {}", bin);
-    for client in clients {
-        let outcome = install_mcp::install_mcp(client, args.scope, &args.root, &bin)?;
-        println!(
-            "  [{:>9}] {:<28} {}",
-            outcome.action,
-            outcome.client.display_name(),
-            outcome.path.display()
-        );
-    }
 
-    // When Claude Code is among the targets, also install the grafly slash
-    // commands (/grafly-ask, /grafly-suggest-questions) so the user has
-    // dedicated entry points that route to the MCP tools.
-    if installs_claude_code {
-        for o in skill::install_claude_skill()? {
-            println!("  [{:>9}] {:<28} {}", o.action, o.label, o.path.display());
+    let mut installed_claude = false;
+    for target in targets {
+        if matches!(target, Target::Claude) {
+            installed_claude = true;
         }
+        let outcome = target::install_target(target, args.scope, &args.root, &bin)?;
+        print_install_outcome(&outcome);
     }
 
     println!(
-        "\nAny MCP-aware client reading those configs can now call `grafly-mcp`'s tools \
-         (analyze, get_artifacts, get_modules, get_hotspots, get_couplings, get_insights, export)."
+        "\nAny LLM agent reading these configs will now consult `{}` first when answering codebase questions.",
+        install::OUTPUT_DIR
     );
-    if installs_claude_code {
+    if installed_claude {
         println!(
-            "In Claude Code, type `/grafly-ask` to send a codebase question to the right MCP \
-             tool, or `/grafly-suggest-questions` to bootstrap a project-specific question list."
+            "In Claude Code, type `/grafly-ask` for any architectural question or \
+             `/grafly-suggest-questions` to bootstrap a project-specific question list."
+        );
+    }
+    println!("Run `grafly analyze .` to produce/refresh the analysis.");
+    Ok(())
+}
+
+fn run_uninstall(args: UninstallArgs) -> Result<()> {
+    let targets = resolve_targets_uninstall(&args);
+    println!("grafly uninstall");
+    for target in targets {
+        let outcome = target::uninstall_target(target, args.scope, &args.root)?;
+        print_uninstall_outcome(&outcome);
+    }
+    Ok(())
+}
+
+fn run_list(args: ListArgs) -> Result<()> {
+    println!("grafly list");
+    for row in target::list_targets(args.scope, &args.root)? {
+        let rules = row
+            .rules_path
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "—".to_string());
+        let mcp = row
+            .mcp_path
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "—".to_string());
+        println!(
+            "  {:<48} rules: {}  |  mcp: {}",
+            row.target.display_name(),
+            rules,
+            mcp
         );
     }
     Ok(())
 }
 
-fn run_mcp_uninstall(args: McpInstallArgs) -> Result<()> {
-    let clients = resolve_mcp_clients(&args);
-    let uninstalls_claude_code = clients.iter().any(|c| *c == McpClient::ClaudeCode);
-
-    println!("grafly mcp uninstall");
-    for client in clients {
-        let outcome = install_mcp::uninstall_mcp(client, args.scope, &args.root)?;
-        println!(
-            "  [{:>9}] {:<28} {}",
-            outcome.action,
-            outcome.client.display_name(),
-            outcome.path.display()
-        );
+fn print_install_outcome(o: &target::TargetOutcome) {
+    println!("  {}:", o.target.display_name());
+    if let Some(r) = &o.rules {
+        println!("    [{:>9}] rules    {}", r.action, r.path.display());
     }
-    if uninstalls_claude_code {
-        for o in skill::uninstall_claude_skill()? {
-            println!("  [{:>9}] {:<28} {}", o.action, o.label, o.path.display());
-        }
+    if let Some(m) = &o.mcp {
+        println!("    [{:>9}] mcp      {}", m.action, m.path.display());
     }
-    Ok(())
+    for s in &o.skills {
+        println!("    [{:>9}] {:<19} {}", s.action, s.label, s.path.display());
+    }
 }
 
-fn run_mcp_list(args: McpListArgs) -> Result<()> {
-    println!("grafly mcp list");
-    for (client, path) in install_mcp::list_mcp(args.scope, &args.root)? {
-        match path {
-            Some(p) => println!("  [registered ] {:<22} {}", client.display_name(), p.display()),
-            None => println!("  [    -      ] {:<22} —", client.display_name()),
-        }
+fn print_uninstall_outcome(o: &target::TargetUninstallOutcome) {
+    println!("  {}:", o.target.display_name());
+    if let Some(r) = &o.rules {
+        println!("    [{:>9}] rules    {}", r.action, r.path.display());
     }
-    Ok(())
+    if let Some(m) = &o.mcp {
+        println!("    [{:>9}] mcp      {}", m.action, m.path.display());
+    }
+    for s in &o.skills {
+        println!("    [{:>9}] {:<19} {}", s.action, s.label, s.path.display());
+    }
 }
 
 // ── Analyze ──────────────────────────────────────────────────────────────────
 
 fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
+    let output_dir = PathBuf::from(install::OUTPUT_DIR);
     println!("grafly {}", env!("CARGO_PKG_VERSION"));
     println!("  target : {}", cli.path.display());
-    println!("  output : {}", cli.output.display());
+    println!("  output : {}", output_dir.display());
 
     // ── 1. Scan ───────────────────────────────────────────────────────────────
     println!();
@@ -507,8 +468,8 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
     );
 
     // ── Output ────────────────────────────────────────────────────────────────
-    std::fs::create_dir_all(&cli.output)
-        .with_context(|| format!("cannot create output dir {}", cli.output.display()))?;
+    std::fs::create_dir_all(&output_dir)
+        .with_context(|| format!("cannot create output dir {}", output_dir.display()))?;
 
     let html_opts = grafly_export::HtmlOptions {
         max_nodes: if cli.max_html_nodes == 0 {
@@ -541,12 +502,12 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
     for fmt in cli.formats.split(',').map(str::trim) {
         match fmt {
             "json" => {
-                let p = cli.output.join("grafly_knowledge.json");
+                let p = output_dir.join("grafly_knowledge.json");
                 grafly_export::write_json(&map, &p)?;
                 println!("  wrote {}", p.display());
             }
             "html" => {
-                let p = cli.output.join("grafly_artifacts.html");
+                let p = output_dir.join("grafly_artifacts.html");
                 grafly_export::write_html(&map, &html_opts, &p)?;
                 let note = if cli.max_html_nodes > 0 && map.node_count() > cli.max_html_nodes {
                     format!(
@@ -560,7 +521,7 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
                 println!("  wrote {}{}", p.display(), note);
             }
             "html-modules" => {
-                let p = cli.output.join("grafly_modules.html");
+                let p = output_dir.join("grafly_modules.html");
                 grafly_export::write_html_modules(&map, &module_html_opts, &p)?;
                 let note = if cli.max_html_modules > 0 && modules.count() > cli.max_html_modules {
                     format!(
@@ -574,12 +535,12 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
                 println!("  wrote {}{}", p.display(), note);
             }
             "html-packages" => {
-                let p = cli.output.join("grafly_packages.html");
+                let p = output_dir.join("grafly_packages.html");
                 grafly_export::write_html_packages(&map, &package_html_opts, &p)?;
                 println!("  wrote {}", p.display());
             }
             "md" => {
-                let p = cli.output.join("grafly_report.md");
+                let p = output_dir.join("grafly_report.md");
                 let md = grafly_report::generate_markdown(
                     &map,
                     &modules,
@@ -594,47 +555,27 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
         }
     }
 
-    let readme_path = cli.output.join("README.md");
+    let readme_path = output_dir.join("README.md");
     std::fs::write(&readme_path, grafly_report::generate_output_readme())?;
     println!("  wrote {}", readme_path.display());
 
-    let questions_path = cli.output.join("SUGGESTED_QUESTIONS.md");
+    let questions_path = output_dir.join("SUGGESTED_QUESTIONS.md");
     std::fs::write(&questions_path, grafly_report::generate_suggested_questions())?;
     println!("  wrote {}", questions_path.display());
 
     println!("\ndone.");
 
     if report_path.is_some() {
-        // The "Next steps" block is shown first — most users haven't installed
-        // grafly's LLM rules yet, and the suggested-questions hint below is far
-        // more useful once those rules are in place.
+        println!("\nNext up.");
+        println!("======================================================");
+        println!("Run `grafly install` and start asking questions to your LLM with:");
+        println!("  - /grafly-ask              (Claude Code)");
+        println!("  - /grafly-suggest-questions (Claude Code)");
         println!(
-            "\nNext steps — make this analysis discoverable to your LLM:\n\
-             \n  1. Append grafly's rules to your LLM tool's instructions file (so any agent\n\
-             \n     working in this project knows how to use ./grafly-out/):\n\
-             \n         grafly install                  # default: Claude Code (./CLAUDE.md)\n\
-             \n         grafly install --all            # every supported platform\n\
-             \n  2. Register the MCP server so agents can query the dependency map live:\n\
-             \n         grafly mcp install              # default: Claude Code (./.mcp.json)\n\
-             \n         grafly mcp install --all        # every supported MCP client\n\
-             \n     The Claude Code install also wires the /grafly-ask and /grafly-suggest-questions\n\
-             \n     slash commands.\n"
+            "  - other LLMs: just ask architecture questions — the installed\n\
+             \x20   rules file routes them to ./grafly-out automatically."
         );
+        println!("======================================================");
     }
-
-    // The "kick-start" hint goes last so it's the most recent thing in the
-    // user's terminal — easiest to copy/paste from there.
-    println!("Kick-start a conversation with your LLM. Copy/paste this:");
-    println!();
-    println!(
-        "  > Read {} and {} and append a \"Project-specific questions\" section to {} with the placeholders resolved to real artifact, module, and package names you find. Then suggest the 10 most valuable questions to ask first.",
-        cli.output.join("grafly_report.md").display(),
-        cli.output.join("grafly_knowledge.json").display(),
-        questions_path.display(),
-    );
-    println!();
-    println!(
-        "  (Or, once `grafly install` + `grafly mcp install` are done, just type /grafly-suggest-questions in Claude Code.)"
-    );
     Ok(())
 }

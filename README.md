@@ -79,7 +79,7 @@ grafly analyze .
 # `grafly .` is shorthand for the same.
 
 # Specific project
-grafly analyze ~/projects/myapp --output ./reports
+grafly analyze ~/projects/myapp
 
 # Tune module resolution (default 1.0 — higher = more, smaller modules)
 grafly analyze . --resolution 0.5
@@ -96,7 +96,6 @@ grafly analyze . --formats json,html
 | Flag | Default | Description |
 |---|---|---|
 | `<PATH>` (positional) | `.` | Directory to scan |
-| `-o`, `--output <DIR>` | `./grafly-out` | Output directory |
 | `-r`, `--resolution <FLOAT>` | `1.0` | Leiden resolution — higher → more, smaller modules |
 | `-s`, `--seed <INT>` | — | Random seed for deterministic module detection |
 | `-f`, `--formats <CSV>` | `json,html,html-modules,html-packages,md` | Comma-separated output formats: `json`, `html`, `html-modules`, `html-packages`, `md` |
@@ -112,7 +111,7 @@ grafly analyze . --formats json,html
 
 Run `grafly analyze --help` for the same list straight from the binary.
 
-Output files (all in `./grafly-out/` by default):
+Output files (always written to `./grafly-out/` — hardcoded so the rules file, MCP server, and `/grafly-*` skills all agree on where to look):
 
 | File | Description |
 |---|---|
@@ -124,61 +123,58 @@ Output files (all in `./grafly-out/` by default):
 | `grafly_artifacts.html` | Interactive artifact-level graph (top-N by degree, Ambiguous edges suppressed for clarity) |
 | `SUGGESTED_QUESTIONS.md` | Kickoff list of architectural questions grouped by which grafly file answers them, with a section for an LLM to fill in project-specific versions |
 
-## Make Grafly Discoverable to LLM Agents
+## Wire Grafly into Your LLM
 
-After analyzing, install grafly's instructions into your LLM tool's config file
-so any agent working in this project knows to consult `./grafly-out/` before
-reading source files or running grep:
-
-```bash
-grafly install                          # default: Claude Code (writes ./CLAUDE.md)
-grafly install --platform cursor        # Cursor (.cursor/rules/grafly.mdc)
-grafly install --platform agents        # AGENTS.md for Codex / Aider / OpenCode
-grafly install --platform copilot       # .github/copilot-instructions.md
-grafly install --platform windsurf      # .windsurfrules
-grafly install --platform gemini        # GEMINI.md
-grafly install --all                    # all of the above
-grafly install --scope global           # ~/.claude/CLAUDE.md (Claude / Agents / Gemini)
-
-grafly uninstall --all                  # cleanly remove all sections
-```
-
-Each install appends a marked section (`<!-- grafly-section-start -->` /
-`<!-- grafly-section-end -->`) to the target file with the directives the LLM
-should follow. Existing content in those files is preserved; `grafly uninstall`
-removes just our section.
-
-## Register the MCP Server
-
-The instructions above teach LLM agents *about* grafly's output. To let them
-**call grafly's tools live** (query the graph, find paths, export) via the
-Model Context Protocol, register `grafly-mcp` in your MCP client:
+After analyzing, run `grafly install` to wire grafly into your LLM tool of
+choice. One command does everything that target supports — the rules file
+(so agents know to consult `./grafly-out/`), the MCP server registry (so
+they can query the graph live), and (for Claude Code) the `/grafly-*`
+slash commands.
 
 ```bash
-grafly mcp install                       # default: Claude Code → ./.mcp.json
-grafly mcp install --client cursor       # .cursor/mcp.json
-grafly mcp install --client claude-desktop  # global Claude Desktop config
-grafly mcp install --client windsurf     # ~/.codeium/windsurf/mcp_config.json
-grafly mcp install --client vscode       # .vscode/mcp.json
-grafly mcp install --all                 # every supported client
+grafly install                          # default: Claude Code
+grafly install --platform cursor        # Cursor
+grafly install --platform claude-desktop # Claude Desktop (MCP only)
+grafly install --platform vscode        # VS Code (MCP only)
+grafly install --all                    # every supported target
 
-grafly mcp list                          # show where it's registered
-grafly mcp uninstall --all               # remove cleanly
+grafly list                             # show what's currently installed
+grafly uninstall --all                  # cleanly remove everything everywhere
 ```
 
-The MCP server exposes ten tools: `analyze`, `get_artifacts`, `get_modules`,
+Per-target capability matrix:
+
+| Target | Rules file | MCP config | Claude Code skills |
+|---|---|---|---|
+| `claude` (default) | `CLAUDE.md` | `.mcp.json` | `/grafly-ask`, `/grafly-suggest-questions` |
+| `claude-desktop` | — | `claude_desktop_config.json` (global) | — |
+| `cursor` | `.cursor/rules/grafly.mdc` | `.cursor/mcp.json` | — |
+| `windsurf` | `.windsurfrules` | `~/.codeium/windsurf/mcp_config.json` | — |
+| `vscode` | — | `.vscode/mcp.json` | — |
+| `agents` | `AGENTS.md` (Codex/Aider/OpenCode/Factory) | — | — |
+| `copilot` | `.github/copilot-instructions.md` | — | — |
+| `gemini` | `GEMINI.md` | — | — |
+
+Each install is all-or-nothing per target. There's no flag to install just the
+rules or just the MCP server — if a target supports a surface, it gets it.
+
+Rules-file installs append a marker-bracketed section
+(`<!-- grafly-section-start -->` / `<!-- grafly-section-end -->`); MCP installs
+merge a `grafly-mcp` entry into the existing JSON registry. Other content in
+those files is preserved. `grafly uninstall` reverses each surface cleanly.
+
+### The MCP server
+
+`grafly-mcp` exposes ten tools — `analyze`, `get_artifacts`, `get_modules`,
 `get_hotspots`, `get_couplings`, `get_insights`, `export`, `find_path`,
-`get_neighbors`, `get_dependents`. The binary path is auto-detected (looks for
-`grafly-mcp` next to `grafly`); override with `--bin`.
+`get_neighbors`, `get_dependents`. The binary path is auto-detected (prefers
+the bare name `grafly-mcp` on PATH; falls back to the sibling of the current
+`grafly` executable); override with `--bin`.
 
-Other entries in the same config file are preserved — grafly only mutates its
-own `grafly` server entry.
+### The `/grafly-*` slash commands (Claude Code only)
 
-### The `/grafly-*` slash commands (Claude Code)
-
-When you run `grafly mcp install` with the Claude Code client, two skill briefs
-plus a marker-bracketed registration in `~/.claude/CLAUDE.md` are installed
-automatically:
+Installing the `claude` target also wires two skill briefs into
+`~/.claude/skills/` plus a registration in `~/.claude/CLAUDE.md`:
 
 | Slash command | What it does |
 |---|---|
@@ -186,12 +182,9 @@ automatically:
 | `/grafly-suggest-questions` | Bootstrap a project-specific question list: reads `./grafly-out/SUGGESTED_QUESTIONS.md` + `grafly_report.md`, resolves the placeholders (`<ARTIFACT>` / `<MODULE>` / `<PACKAGE>`) to real names from this codebase, appends a dated section, and surfaces the top 10 as a menu in chat. Useful as a kick-off for onboarding or code review. |
 
 The same suggested-questions workflow is also wired into the install templates
-for every other LLM tool (`grafly install --all`), so agents that don't support
-Claude Code skills still know to consult `SUGGESTED_QUESTIONS.md` when the user
-asks "what can I ask about this codebase?" or "where do I start?".
-
-`grafly mcp uninstall` removes both skills and the registration alongside the
-MCP server entry.
+for every other LLM tool, so agents that don't support Claude Code skills still
+know to consult `SUGGESTED_QUESTIONS.md` when the user asks "what can I ask
+about this codebase?" or "where do I start?".
 
 ---
 
