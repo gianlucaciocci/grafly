@@ -130,9 +130,33 @@ pub fn write_html(map: &DependencyMap, opts: &HtmlOptions, path: &Path) -> Resul
         opts.include_private,
     );
     let payload = filtered_artifact_payload(map, &kept_nodes, &kept_edges, &opts.module_names);
-    let payload_json = serde_json::to_string(&payload)?;
+    let payload_json = escape_json_for_html(&serde_json::to_string(&payload)?);
     std::fs::write(path, build_artifact_html(&payload_json))?;
     Ok(())
+}
+
+/// Replace HTML-sensitive characters in a JSON string with their `\uXXXX`
+/// escapes so the result is safe to embed inside an HTML `<script>` element.
+/// Identifier names harvested from analysed source code can contain anything,
+/// including a literal `</script>` sequence that would otherwise break out of
+/// the script context. Inside JSON output from `serde_json`, `<`, `>`, and `&`
+/// only ever appear inside string contents, where the `\uXXXX` form parses
+/// back to the original character via `JSON.parse`.
+fn escape_json_for_html(s: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            // U+2028 / U+2029 are valid in JSON strings but terminate JS lines —
+            // a historic gotcha for inline-script JSON. Harmless here since we
+            // parse via JSON.parse, but escaping costs nothing.
+            '<' | '>' | '&' | '\u{2028}' | '\u{2029}' => {
+                let _ = write!(out, "\\u{:04x}", ch as u32);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 fn select_for_viz(
@@ -249,7 +273,7 @@ pub fn write_html_modules(
     path: &Path,
 ) -> Result<(), ExportError> {
     let payload = build_module_payload(map, opts);
-    let payload_json = serde_json::to_string(&payload)?;
+    let payload_json = escape_json_for_html(&serde_json::to_string(&payload)?);
     std::fs::write(path, build_module_html(&payload_json))?;
     Ok(())
 }
@@ -364,7 +388,7 @@ pub fn write_html_packages(
     path: &Path,
 ) -> Result<(), ExportError> {
     let payload = build_package_payload(map, opts);
-    let payload_json = serde_json::to_string(&payload)?;
+    let payload_json = escape_json_for_html(&serde_json::to_string(&payload)?);
     std::fs::write(path, build_package_html(&payload_json))?;
     Ok(())
 }
@@ -569,8 +593,9 @@ fn build_artifact_html(payload_json: &str) -> String {
   <div id="legend"></div>
 </div>
 <div id="graph"></div>
+<script type="application/json" id="grafly-data">{payload_json}</script>
 <script>
-const DATA   = {payload_json};
+const DATA   = JSON.parse(document.getElementById('grafly-data').textContent);
 const COLORS = {palette};
 const KIND   = {kind_colors};
 
@@ -679,8 +704,9 @@ fn build_module_html(payload_json: &str) -> String {
   <div id="legend"></div>
 </div>
 <div id="graph"></div>
+<script type="application/json" id="grafly-data">{payload_json}</script>
 <script>
-const DATA = {payload_json};
+const DATA = JSON.parse(document.getElementById('grafly-data').textContent);
 const KIND = {kind_colors};
 const COLORS = {palette};
 
@@ -770,6 +796,61 @@ fn _ensure_kind_used() -> DependencyKind {
     DependencyKind::Calls
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_json_for_html_neutralises_script_breakout() {
+        let raw = r#"{"label":"</script><script>alert(1)</script>"}"#;
+        let escaped = escape_json_for_html(raw);
+        assert!(!escaped.contains("</script>"), "escaped output must not contain a literal </script>");
+        assert!(!escaped.contains('<'));
+        assert!(!escaped.contains('>'));
+        // Every < and > must have been replaced by a six-char \uXXXX sequence.
+        assert!(escaped.contains("003c"));
+        assert!(escaped.contains("003e"));
+    }
+
+    #[test]
+    fn escape_json_for_html_escapes_ampersand() {
+        let escaped = escape_json_for_html("a&b");
+        assert!(!escaped.contains('&'));
+        assert!(escaped.contains("0026"));
+        assert_eq!(escaped.len(), "a".len() + 6 + "b".len());
+    }
+
+    #[test]
+    fn escape_json_for_html_round_trips_via_serde() {
+        let payload = serde_json::json!({
+            "label": "</script><script>alert(1)</script>",
+            "amp":   "Tom & Jerry",
+        });
+        let escaped = escape_json_for_html(&serde_json::to_string(&payload).unwrap());
+        // Still valid JSON, and JSON.parse on the JS side would restore the original strings.
+        let parsed: serde_json::Value = serde_json::from_str(&escaped).unwrap();
+        assert_eq!(parsed["label"], "</script><script>alert(1)</script>");
+        assert_eq!(parsed["amp"], "Tom & Jerry");
+    }
+
+    #[test]
+    fn rendered_artifact_html_contains_no_breakout_sequence() {
+        let hostile = r#"{"artifacts":[{"id":"x","label":"</script><script>alert(1)</script>"}]}"#;
+        let escaped = escape_json_for_html(hostile);
+        let html = build_artifact_html(&escaped);
+        // The only </script> in the rendered HTML should be the tag closers, not
+        // anything originating from the data payload.
+        let payload_section = html
+            .split(r#"id="grafly-data">"#)
+            .nth(1)
+            .expect("data script tag present")
+            .split("</script>")
+            .next()
+            .expect("data script tag closes");
+        assert!(!payload_section.contains('<'), "payload must contain no raw '<'");
+    }
+}
+
 fn build_package_html(payload_json: &str) -> String {
     format!(
         r##"<!DOCTYPE html>
@@ -807,8 +888,9 @@ fn build_package_html(payload_json: &str) -> String {
   <div id="legend"></div>
 </div>
 <div id="graph"></div>
+<script type="application/json" id="grafly-data">{payload_json}</script>
 <script>
-const DATA = {payload_json};
+const DATA = JSON.parse(document.getElementById('grafly-data').textContent);
 const KIND = {kind_colors};
 
 // Package node colors: binaries vs libraries.
