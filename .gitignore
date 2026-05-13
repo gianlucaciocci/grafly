@@ -1,1 +1,6 @@
 /target
+/grafly-out
+CLAUDE.md
+.claude
+*.excalidraw
+*.excalidraw.*

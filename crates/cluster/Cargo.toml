@@ -1,0 +1,11 @@
+[package]
+name    = "grafly-cluster"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+grafly-core = { workspace = true }
+leiden-rs   = { workspace = true }
+petgraph    = { workspace = true }
+anyhow      = { workspace = true }
+thiserror   = { workspace = true }

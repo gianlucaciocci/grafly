@@ -1,9 +1,78 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/scan",
+    "crates/cluster",
+    "crates/analyze",
+    "crates/query",
+    "crates/report",
+    "crates/export",
+    "crates/cli",
+    "crates/mcp",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Internal crates
+grafly-core    = { path = "crates/core" }
+grafly-scan    = { path = "crates/scan" }
+grafly-cluster = { path = "crates/cluster" }
+grafly-analyze = { path = "crates/analyze" }
+grafly-query   = { path = "crates/query" }
+grafly-report  = { path = "crates/report" }
+grafly-export  = { path = "crates/export" }
+
+# Coupling detection — published crate (see future_improvements.md re: vendoring)
+leiden-rs = { version = "0.8", features = ["petgraph", "rayon"] }
+
+# Graph
+petgraph = { version = "0.8", features = ["serde-1"] }
+
+# Serialization
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Parallelism & utilities
+rayon     = "1"
+anyhow    = "1"
+thiserror = "2"
+ignore    = "0.4"
+
+# CLI
+clap      = { version = "4", features = ["derive"] }
+indicatif = "0.17"
+
+# MCP server
+rmcp     = { version = "1", features = ["server", "macros", "transport-io"] }
+schemars = "1"
+tokio    = { version = "1", features = ["full"] }
+
+# Tree-sitter core
+tree-sitter = "0.23"
+
+# Language grammars
+tree-sitter-python     = "0.23"
+tree-sitter-rust       = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-go         = "0.23"
+tree-sitter-java       = "0.23"
+
+# ── Root package (re-exports all crates as a unified public API) ──────────────
+
 [package]
-name = "grafly"
-version = "0.1.0"
-edition = "2024"
+name        = "grafly"
+version     = "0.1.0"
+edition     = "2021"
 description = "Extract, cluster and analyze codebases as knowledge graphs."
-license = "MIT"
-repository = "https://github.com/gianlucaciocci/grafly"
+license     = "MIT"
+repository  = "https://github.com/gianlucaciocci/grafly"
 
 [dependencies]
+grafly-core    = { workspace = true }
+grafly-scan    = { workspace = true }
+grafly-cluster = { workspace = true }
+grafly-analyze = { workspace = true }
+grafly-query   = { workspace = true }
+grafly-report  = { workspace = true }
+grafly-export  = { workspace = true }
