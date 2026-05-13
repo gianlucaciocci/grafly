@@ -3,6 +3,8 @@
 use grafly_analyze::Analysis;
 use grafly_cluster::Modules;
 use grafly_core::{ArtifactKind, DependencyKind, DependencyMap};
+use petgraph::graph::NodeIndex;
+use std::collections::HashMap;
 
 /// Generate the LLM-discoverable Markdown analysis report.
 ///
@@ -17,6 +19,7 @@ pub fn generate_markdown(
     map: &DependencyMap,
     modules: &Modules,
     analysis: &Analysis,
+    intra_package: Option<&HashMap<NodeIndex, Modules>>,
 ) -> String {
     let mut md = String::with_capacity(16384);
 
@@ -90,7 +93,15 @@ pub fn generate_markdown(
     }
 
     // ── Package breakdown ─────────────────────────────────────────────────────
-    let mut packages: Vec<(&str, &str, usize)> = map
+    struct PackageRow<'a> {
+        idx: NodeIndex,
+        name: &'a str,
+        manifest: &'a str,
+        description: Option<&'a str>,
+        is_entry_point: bool,
+        file_count: usize,
+    }
+    let mut packages: Vec<PackageRow> = map
         .node_indices()
         .filter_map(|n| {
             let a = &map[n];
@@ -101,21 +112,70 @@ pub fn generate_markdown(
                 .edges_directed(n, petgraph::Direction::Outgoing)
                 .filter(|e| e.weight().kind == DependencyKind::Contains)
                 .count();
-            Some((a.label.as_str(), a.source_file.as_str(), file_count))
+            Some(PackageRow {
+                idx: n,
+                name: a.label.as_str(),
+                manifest: a.source_file.as_str(),
+                description: a.description.as_deref(),
+                is_entry_point: a.is_entry_point,
+                file_count,
+            })
         })
         .collect();
     if !packages.is_empty() {
-        packages.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(b.0)));
+        packages.sort_by(|a, b| b.file_count.cmp(&a.file_count).then_with(|| a.name.cmp(b.name)));
         md.push_str("## Packages\n\n");
-        md.push_str(
-            "Buildable units declared by project manifests (`Cargo.toml`). Each entry \
-             shows the package name, the source files it owns, and the manifest path.\n\n",
+        let mut intro = String::from(
+            "Buildable units declared by project manifests (`Cargo.toml`, `pyproject.toml`, \
+             `package.json`, `go.mod`). Entries flagged `[bin]` declare an executable \
+             entry point.",
         );
-        for (name, manifest, count) in &packages {
+        if intra_package.is_some() {
+            intro.push_str(
+                " Nested bullets show Leiden clusters detected *within* each package — \
+                 fine-grained subsystems independent of the global cross-package modules below.",
+            );
+        }
+        intro.push_str("\n\n");
+        md.push_str(&intro);
+
+        for p in &packages {
+            let marker = if p.is_entry_point { " `[bin]`" } else { "" };
+            let desc = match p.description {
+                Some(d) if !d.is_empty() => format!(" — {}", d),
+                _ => String::new(),
+            };
             md.push_str(&format!(
-                "- **`{}`** — {} source files (`{}`)\n",
-                name, count, manifest
+                "- **`{}`**{} — {} source files (`{}`){}\n",
+                p.name, marker, p.file_count, p.manifest, desc
             ));
+
+            if let Some(intra_map) = intra_package {
+                if let Some(intra) = intra_map.get(&p.idx) {
+                    if !intra.members.is_empty() {
+                        let mut entries: Vec<(usize, &str, usize)> = (0..intra.count())
+                            .map(|i| (i, intra.name_of(i), intra.members[i].len()))
+                            .collect();
+                        entries.sort_by(|a, b| b.2.cmp(&a.2));
+                        let top: Vec<String> = entries
+                            .iter()
+                            .take(3)
+                            .map(|(_, name, sz)| format!("`{}` ({})", name, sz))
+                            .collect();
+                        let rest = entries.len().saturating_sub(3);
+                        let suffix = if rest > 0 {
+                            format!(", + {} more", rest)
+                        } else {
+                            String::new()
+                        };
+                        md.push_str(&format!(
+                            "  - intra-modules: {}{}\n",
+                            top.join(", "),
+                            suffix
+                        ));
+                    }
+                }
+            }
         }
         md.push('\n');
     }

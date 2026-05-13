@@ -390,11 +390,13 @@ impl GraflyServer {
 
     /// Export the dependency map to files (JSON, HTML, Markdown).
     #[tool(description = "Export the dependency map to one or more file formats. \
-        Supported formats (comma-separated): json, html, html-modules, md. \
+        Supported formats (comma-separated): json, html, html-modules, html-packages, md. \
         json — raw map data; html — artifact-level interactive graph (top-N by degree); \
         html-modules — module-level overview (modules as nodes, aggregated cross-module \
-        edges grouped by relationship kind); md — Markdown report with modules, hotspots, \
-        and insights. Returns the list of written file paths.")]
+        edges grouped by relationship kind); html-packages — package-level overview \
+        (Cargo/pyproject/package.json/go.mod packages as nodes, cross-package edges); \
+        md — Markdown report with packages, modules, hotspots, and insights. \
+        Returns the list of written file paths.")]
     fn export(&self, Parameters(p): Parameters<ExportParams>) -> String {
         let path = PathBuf::from(&p.path);
         let output = PathBuf::from(&p.output);
@@ -456,9 +458,16 @@ impl GraflyServer {
                                 .map_err(|e| e.to_string())
                                 .map(|_| written.push(p.to_string_lossy().to_string()))
                         }
+                        "html-packages" => {
+                            let p = output.join("grafly_packages.html");
+                            let pkg_opts = grafly_export::PackageHtmlOptions::default();
+                            grafly_export::write_html_packages(&map, &pkg_opts, &p)
+                                .map_err(|e| e.to_string())
+                                .map(|_| written.push(p.to_string_lossy().to_string()))
+                        }
                         "md" => {
                             let p = output.join("grafly_report.md");
-                            let md = grafly_report::generate_markdown(&map, &modules, &analysis);
+                            let md = grafly_report::generate_markdown(&map, &modules, &analysis, None);
                             std::fs::write(&p, md)
                                 .map_err(|e| e.to_string())
                                 .map(|_| written.push(p.to_string_lossy().to_string()))

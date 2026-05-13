@@ -39,6 +39,8 @@ impl<'src> Scanner<'src> {
             kind: ArtifactKind::File,
             source_file: self.file_id.clone(),
             source_line: 0,
+            description: None,
+            is_entry_point: false,
         });
     }
 
@@ -49,6 +51,8 @@ impl<'src> Scanner<'src> {
             kind,
             source_file: self.file_id.clone(),
             source_line: line,
+            description: None,
+            is_entry_point: false,
         });
     }
 

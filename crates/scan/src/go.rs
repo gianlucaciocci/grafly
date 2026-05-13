@@ -24,6 +24,17 @@ pub fn scan(path: &Path, source: &str) -> ScanResult {
     s.add_file(file_label);
 
     let root = tree.root_node();
+
+    // Detect `package main` so manifest discovery can flag the owning go.mod
+    // as a binary. Tracked via parent directory of this file.
+    if is_main_package(&root, source.as_bytes()) {
+        if let Some(dir) = path.parent() {
+            s.result
+                .main_package_dirs
+                .push(dir.to_string_lossy().replace('\\', "/"));
+        }
+    }
+
     let mut cursor = root.walk();
 
     for child in root.children(&mut cursor) {
@@ -167,6 +178,23 @@ fn extract_import_names(node: &Node, s: &Scanner) -> Vec<String> {
 
 fn node_text<'a>(node: &Node, source: &'a [u8]) -> &'a str {
     node.utf8_text(source).unwrap_or("")
+}
+
+/// True when the file's top-level `package` clause names `main`.
+/// (Tree-sitter-go shape: source_file → package_clause → package_identifier.)
+fn is_main_package(root: &Node, source: &[u8]) -> bool {
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if child.kind() == "package_clause" {
+            let mut c = child.walk();
+            for inner in child.children(&mut c) {
+                if inner.kind() == "package_identifier" {
+                    return inner.utf8_text(source).unwrap_or("") == "main";
+                }
+            }
+        }
+    }
+    false
 }
 
 const GO_BUILTINS: &[&str] = &[

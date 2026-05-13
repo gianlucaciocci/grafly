@@ -128,8 +128,8 @@ struct AnalyzeArgs {
     #[arg(short, long)]
     seed: Option<u64>,
 
-    /// Comma-separated output formats: json, html, html-modules, md
-    #[arg(short, long, default_value = "json,html,html-modules,md")]
+    /// Comma-separated output formats: json, html, html-modules, html-packages, md
+    #[arg(short, long, default_value = "json,html,html-modules,html-packages,md")]
     formats: String,
 
     /// Max artifacts in the artifact-level HTML (0 = unlimited).
@@ -169,6 +169,12 @@ struct AnalyzeArgs {
     /// module/hotspot detection.
     #[arg(long, default_value_t = false)]
     include_tests: bool,
+
+    /// Skip the intra-package Leiden pass. By default grafly clusters within
+    /// each `Package` separately (in addition to the global cross-package
+    /// modules), surfacing fine-grained subsystems inside each crate/package.
+    #[arg(long, default_value_t = false)]
+    no_intra_package_modules: bool,
 }
 
 #[derive(Args)]
@@ -439,7 +445,27 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
         modules.quality
     );
 
-    // ── 3b. Drop Imports edges (post-cluster) ─────────────────────────────────
+    // ── 3b. Intra-package Leiden ─────────────────────────────────────────────
+    // Cluster within each Package's subgraph to surface fine-grained subsystems
+    // inside each crate/package. Additive to the global modules above — doesn't
+    // mutate Artifact.module_id, just produces a separate per-package partition.
+    let intra_package = if cli.no_intra_package_modules {
+        None
+    } else {
+        let pb = spinner("[3b/4] intra-package modules");
+        let result = grafly_cluster::detect_modules_within_packages(&map, &detection_config, cli.seed)
+            .context("intra-package module detection failed")?;
+        pb.finish_and_clear();
+        let clustered = result.values().filter(|m| !m.members.is_empty()).count();
+        let total_intra: usize = result.values().map(|m| m.count()).sum();
+        println!(
+            "[3b/4] intra-package modules ... {} packages clustered, {} intra-modules total",
+            clustered, total_intra
+        );
+        Some(result)
+    };
+
+    // ── 3c. Drop Imports edges (post-cluster) ─────────────────────────────────
     // Imports edges are essential signal for Leiden (they encode file-level
     // co-occurrence — the densest connections in a typical codebase). But for
     // downstream surfaces — hotspots, HTML, path queries — they're noise:
@@ -488,6 +514,13 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
         },
         module_names: modules.names.clone(),
     };
+    let package_html_opts = grafly_export::PackageHtmlOptions {
+        max_packages: None, // packages are typically O(10-50), no cap needed
+        intra_module_counts: intra_package
+            .as_ref()
+            .map(|m| m.iter().map(|(idx, mods)| (*idx, mods.count())).collect())
+            .unwrap_or_default(),
+    };
 
     println!();
     let mut report_path: Option<PathBuf> = None;
@@ -526,9 +559,19 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
                 };
                 println!("  wrote {}{}", p.display(), note);
             }
+            "html-packages" => {
+                let p = cli.output.join("grafly_packages.html");
+                grafly_export::write_html_packages(&map, &package_html_opts, &p)?;
+                println!("  wrote {}", p.display());
+            }
             "md" => {
                 let p = cli.output.join("grafly_report.md");
-                let md = grafly_report::generate_markdown(&map, &modules, &analysis);
+                let md = grafly_report::generate_markdown(
+                    &map,
+                    &modules,
+                    &analysis,
+                    intra_package.as_ref(),
+                );
                 std::fs::write(&p, md)?;
                 println!("  wrote {}", p.display());
                 report_path = Some(p);

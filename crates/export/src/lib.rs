@@ -1,6 +1,6 @@
 //! grafly-export — write a dependency map to JSON / HTML.
 
-use grafly_core::{DependencyKind, DependencyMap};
+use grafly_core::{ArtifactKind, DependencyKind, DependencyMap};
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use petgraph::visit::EdgeRef;
 use serde_json::{json, Value};
@@ -39,6 +39,17 @@ impl Default for HtmlOptions {
     }
 }
 
+/// Options for the package-level HTML export.
+#[derive(Debug, Clone, Default)]
+pub struct PackageHtmlOptions {
+    /// Top-N packages to render by source-file count. `None` = unlimited.
+    /// Default unlimited because packages are typically O(10-50) per project.
+    pub max_packages: Option<usize>,
+    /// Optional: number of intra-package modules per Package NodeIndex, for
+    /// display in node tooltips. Empty map means "no intra-module info shown".
+    pub intra_module_counts: HashMap<NodeIndex, usize>,
+}
+
 /// Options for the module-level HTML export.
 #[derive(Debug, Clone)]
 pub struct ModuleHtmlOptions {
@@ -65,12 +76,14 @@ pub fn to_json(map: &DependencyMap) -> Value {
         .map(|n| {
             let a = &map[n];
             json!({
-                "id":          a.id,
-                "label":       a.display_label(),
-                "kind":        format!("{:?}", a.kind),
-                "source_file": a.source_file,
-                "source_line": a.source_line,
-                "module_id":   a.module_id,
+                "id":             a.id,
+                "label":          a.display_label(),
+                "kind":           format!("{:?}", a.kind),
+                "source_file":    a.source_file,
+                "source_line":    a.source_line,
+                "module_id":      a.module_id,
+                "description":    a.description,
+                "is_entry_point": a.is_entry_point,
             })
         })
         .collect();
@@ -166,13 +179,15 @@ fn filtered_artifact_payload(
             let a = &map[n];
             let module_label = a.module_id.and_then(|id| module_names.get(id)).cloned();
             json!({
-                "id":           a.id,
-                "label":        a.display_label(),
-                "kind":         format!("{:?}", a.kind),
-                "source_file":  a.source_file,
-                "source_line":  a.source_line,
-                "module_id":    a.module_id,
-                "module_name":  module_label,
+                "id":             a.id,
+                "label":          a.display_label(),
+                "kind":           format!("{:?}", a.kind),
+                "source_file":    a.source_file,
+                "source_line":    a.source_line,
+                "module_id":      a.module_id,
+                "module_name":    module_label,
+                "description":    a.description,
+                "is_entry_point": a.is_entry_point,
             })
         })
         .collect();
@@ -315,6 +330,164 @@ fn build_module_payload(map: &DependencyMap, opts: &ModuleHtmlOptions) -> Value 
             "cross_module_edges_shown": module_edges.len(),
             "cross_module_dependencies_aggregated": total_cross_module,
             "filtered": shown_modules < total_modules,
+        }
+    })
+}
+
+/// Write the package-level HTML overview to `path`. Nodes are `Package`
+/// artifacts (sized by source-file count, coloured to distinguish binaries
+/// from libraries); edges are aggregated cross-package dependencies (`Calls`,
+/// `Extends`, `Implements`, `References`, `Uses`) grouped by `DependencyKind`.
+/// `Contains` edges are excluded (each Package's Contains edges are intra,
+/// not architectural cross-cuts).
+pub fn write_html_packages(
+    map: &DependencyMap,
+    opts: &PackageHtmlOptions,
+    path: &Path,
+) -> Result<(), ExportError> {
+    let payload = build_package_payload(map, opts);
+    let payload_json = serde_json::to_string(&payload)?;
+    std::fs::write(path, build_package_html(&payload_json))?;
+    Ok(())
+}
+
+fn build_package_payload(map: &DependencyMap, opts: &PackageHtmlOptions) -> Value {
+    // 1) Collect Package artifacts with their file counts.
+    struct PkgRow {
+        idx: NodeIndex,
+        label: String,
+        description: Option<String>,
+        manifest: String,
+        is_entry_point: bool,
+        file_count: usize,
+    }
+    let mut packages: Vec<PkgRow> = map
+        .node_indices()
+        .filter_map(|n| {
+            let a = &map[n];
+            if a.kind != ArtifactKind::Package {
+                return None;
+            }
+            let file_count = map
+                .edges_directed(n, petgraph::Direction::Outgoing)
+                .filter(|e| e.weight().kind == DependencyKind::Contains)
+                .count();
+            Some(PkgRow {
+                idx: n,
+                label: a.label.clone(),
+                description: a.description.clone(),
+                manifest: a.source_file.clone(),
+                is_entry_point: a.is_entry_point,
+                file_count,
+            })
+        })
+        .collect();
+
+    // 2) Top-N by file count (default unlimited).
+    packages.sort_by(|a, b| b.file_count.cmp(&a.file_count).then_with(|| a.label.cmp(&b.label)));
+    let total_packages = packages.len();
+    let kept: Vec<&PkgRow> = match opts.max_packages {
+        Some(n) if n < total_packages => packages.iter().take(n).collect(),
+        _ => packages.iter().collect(),
+    };
+    let kept_idx: HashSet<NodeIndex> = kept.iter().map(|p| p.idx).collect();
+    let shown_packages = kept.len();
+
+    // 3) Map every artifact → its owning Package via reverse-Contains BFS from each Package.
+    let mut artifact_to_pkg: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+    for p in &kept {
+        // BFS through Contains edges
+        let mut queue: Vec<NodeIndex> = vec![p.idx];
+        while let Some(n) = queue.pop() {
+            for e in map.edges_directed(n, petgraph::Direction::Outgoing) {
+                if e.weight().kind != DependencyKind::Contains {
+                    continue;
+                }
+                let target = e.target();
+                if artifact_to_pkg.insert(target, p.idx).is_none() {
+                    queue.push(target);
+                }
+            }
+        }
+    }
+
+    // 4) Aggregate cross-package edges (exclude Contains since those are intra-Package).
+    let mut agg: BTreeMap<(NodeIndex, NodeIndex), HashMap<String, usize>> = BTreeMap::new();
+    let mut total_cross_pkg = 0usize;
+    for e in map.edge_references() {
+        if e.weight().kind == DependencyKind::Contains {
+            continue;
+        }
+        let (Some(&src_pkg), Some(&dst_pkg)) = (
+            artifact_to_pkg.get(&e.source()),
+            artifact_to_pkg.get(&e.target()),
+        ) else {
+            continue;
+        };
+        if src_pkg == dst_pkg {
+            continue;
+        }
+        if !kept_idx.contains(&src_pkg) || !kept_idx.contains(&dst_pkg) {
+            continue;
+        }
+        total_cross_pkg += 1;
+        let kind_label = format!("{:?}", e.weight().kind);
+        *agg.entry((src_pkg, dst_pkg))
+            .or_default()
+            .entry(kind_label)
+            .or_default() += 1;
+    }
+
+    // 5) Build node and edge JSON. Node ID = NodeIndex.index() (stable u32).
+    let pkg_nodes: Vec<Value> = kept
+        .iter()
+        .map(|p| {
+            let intra = opts.intra_module_counts.get(&p.idx).copied().unwrap_or(0);
+            json!({
+                "id":             p.idx.index(),
+                "label":          p.label,
+                "manifest":       p.manifest,
+                "description":    p.description,
+                "is_entry_point": p.is_entry_point,
+                "file_count":     p.file_count,
+                "intra_modules":  intra,
+            })
+        })
+        .collect();
+
+    let pkg_edges: Vec<Value> = agg
+        .into_iter()
+        .map(|((sm, dm), counts)| {
+            let total: usize = counts.values().sum();
+            let mut breakdown: Vec<(String, usize)> =
+                counts.iter().map(|(k, v)| (k.clone(), *v)).collect();
+            breakdown.sort_by(|a, b| b.1.cmp(&a.1));
+            let dominant = breakdown[0].0.clone();
+            let label = breakdown
+                .iter()
+                .map(|(k, v)| format!("{}×{}", k, v))
+                .collect::<Vec<_>>()
+                .join(" · ");
+            json!({
+                "from":      sm.index(),
+                "to":        dm.index(),
+                "total":     total,
+                "dominant":  dominant,
+                "label":     label,
+                "breakdown": counts,
+            })
+        })
+        .collect();
+
+    json!({
+        "packages": pkg_nodes,
+        "edges":    pkg_edges,
+        "stats": {
+            "shown_packages":                       shown_packages,
+            "total_packages":                       total_packages,
+            "cross_package_edges_shown":            pkg_edges.len(),
+            "cross_package_dependencies_aggregated": total_cross_pkg,
+            "filtered":                             shown_packages < total_packages,
         }
     })
 }
@@ -573,4 +746,142 @@ net.on('click', params => {{
 #[allow(dead_code)]
 fn _ensure_kind_used() -> DependencyKind {
     DependencyKind::Calls
+}
+
+fn build_package_html(payload_json: &str) -> String {
+    format!(
+        r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Grafly — Package Overview</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: #0f0f1a; color: #e0e0e0; font-family: system-ui, sans-serif; }}
+  #graph {{ width: 100vw; height: 100vh; }}
+  #panel {{
+    position: fixed; top: 12px; left: 12px; z-index: 10;
+    background: rgba(15,15,26,.9); border: 1px solid #333;
+    border-radius: 10px; padding: 14px 18px; min-width: 280px;
+    backdrop-filter: blur(6px);
+  }}
+  #panel h2 {{ font-size: 1rem; color: #a0c4ff; margin-bottom: 8px; }}
+  #panel p  {{ font-size: .78rem; color: #aaa; line-height: 1.5; }}
+  #panel .warn {{ color: #f4a261; font-weight: 500; }}
+  #info {{ margin-top: 10px; font-size: .78rem; color: #ccc; line-height: 1.4; }}
+  #info code {{ background: #222; padding: 1px 4px; border-radius: 3px; }}
+  #legend {{ margin-top: 10px; font-size: .72rem; color: #aaa; }}
+  #legend span {{ display: inline-block; margin-right: 10px; }}
+  #legend i {{ display: inline-block; width: 12px; height: 3px; vertical-align: middle; margin-right: 2px; }}
+  #legend i.dot {{ width: 10px; height: 10px; border-radius: 50%; }}
+</style>
+</head>
+<body>
+<div id="panel">
+  <h2>grafly — package overview</h2>
+  <p id="stats">Loading…</p>
+  <div id="info"></div>
+  <div id="legend"></div>
+</div>
+<div id="graph"></div>
+<script>
+const DATA = {payload_json};
+const KIND = {kind_colors};
+
+// Package node colors: binaries vs libraries.
+const COLOR_BIN = '#e76f51';   // warm orange for executables
+const COLOR_LIB = '#2a9d8f';   // teal for libraries
+
+const sizeOf = files => 18 + Math.log2(1 + files) * 8;
+
+const nodes = new vis.DataSet(DATA.packages.map(p => {{
+  const subtitle = [
+    p.description ? p.description : null,
+    `${{p.file_count}} source files`,
+    p.intra_modules > 0 ? `${{p.intra_modules}} intra-modules` : null,
+    `<code>${{p.manifest}}</code>`,
+  ].filter(Boolean).join('<br>');
+  return {{
+    id:    p.id,
+    label: p.is_entry_point ? `${{p.label}} [bin]` : p.label,
+    title: `<strong>${{p.label}}</strong>${{p.is_entry_point ? ' <em>[bin]</em>' : ''}}<br>${{subtitle}}`,
+    color: p.is_entry_point ? COLOR_BIN : COLOR_LIB,
+    shape: 'dot',
+    size:  sizeOf(p.file_count),
+    font:  {{ color: '#fff', size: 14, face: 'system-ui' }},
+  }};
+}}));
+
+const widthOf = total => 1 + Math.log2(1 + total) * 1.5;
+
+const edges = new vis.DataSet(DATA.edges.map((e, i) => ({{
+  id:     i,
+  from:   e.from,
+  to:     e.to,
+  label:  e.label,
+  title:  e.label,
+  arrows: 'to',
+  width:  widthOf(e.total),
+  color:  {{ color: KIND[e.dominant] || '#888', highlight: '#fff', opacity: 0.75 }},
+  font:   {{ color: '#bbb', size: 10, align: 'middle', strokeWidth: 0 }},
+  smooth: {{ type: 'curvedCW', roundness: 0.15 }},
+}})));
+
+const s = DATA.stats;
+document.getElementById('stats').innerHTML = s.filtered
+  ? `<span class="warn">Showing top ${{s.shown_packages.toLocaleString()}} of ${{s.total_packages.toLocaleString()}} packages</span><br>${{s.cross_package_edges_shown.toLocaleString()}} cross-package edges (${{s.cross_package_dependencies_aggregated.toLocaleString()}} dependencies aggregated)`
+  : `${{s.shown_packages.toLocaleString()}} packages · ${{s.cross_package_edges_shown.toLocaleString()}} cross-package edges (${{s.cross_package_dependencies_aggregated.toLocaleString()}} dependencies aggregated)`;
+
+document.getElementById('legend').innerHTML =
+  `<div><span><i class="dot" style="background:${{COLOR_BIN}}"></i>binary</span><span><i class="dot" style="background:${{COLOR_LIB}}"></i>library</span></div>` +
+  `<div style="margin-top:4px">` +
+  Object.entries(KIND).filter(([k]) => k !== 'Contains').map(([k,v]) => `<span><i style="background:${{v}}"></i>${{k}}</span>`).join('') +
+  `</div>` +
+  `<div style="color:#777; margin-top:4px">edge width ∝ log(total dependencies)</div>`;
+
+const net = new vis.Network(
+  document.getElementById('graph'),
+  {{ nodes, edges }},
+  {{
+    physics: {{
+      solver: 'forceAtlas2Based',
+      forceAtlas2Based: {{ gravitationalConstant: -120, springLength: 220, avoidOverlap: 0.6 }},
+      stabilization: {{ iterations: 400 }},
+    }},
+    interaction: {{ hover: true, tooltipDelay: 200 }},
+  }}
+);
+
+net.on('click', params => {{
+  if (params.nodes.length) {{
+    const p = DATA.packages.find(x => x.id === params.nodes[0]);
+    if (!p) return;
+    const lines = [
+      `<strong>${{p.label}}</strong>${{p.is_entry_point ? ' <em>[bin]</em>' : ''}}`,
+      p.description ? p.description : null,
+      `Manifest: <code>${{p.manifest}}</code>`,
+      `Source files: ${{p.file_count}}`,
+      p.intra_modules > 0 ? `Intra-package modules: ${{p.intra_modules}}` : null,
+    ].filter(Boolean);
+    document.getElementById('info').innerHTML = lines.join('<br>');
+  }} else if (params.edges.length) {{
+    const e = DATA.edges[params.edges[0]];
+    if (!e) return;
+    const from = DATA.packages.find(p => p.id === e.from);
+    const to = DATA.packages.find(p => p.id === e.to);
+    const breakdownLines = Object.entries(e.breakdown)
+      .sort((a,b) => b[1]-a[1])
+      .map(([k,v]) => `&nbsp;&nbsp;${{k}}: ${{v}}`).join('<br>');
+    document.getElementById('info').innerHTML =
+      `<strong>${{from.label}} → ${{to.label}}</strong><br>
+       Total: ${{e.total}} dependencies<br>${{breakdownLines}}`;
+  }}
+}});
+</script>
+</body>
+</html>"##,
+        payload_json = payload_json,
+        kind_colors = KIND_COLORS,
+    )
 }
