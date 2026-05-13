@@ -16,8 +16,11 @@ mod rust_lang;
 mod typescript;
 
 pub mod common;
+pub mod manifest;
 
-use grafly_core::ScanResult;
+use grafly_core::{
+    ArtifactKind, Confidence, DependencyKind, RawArtifact, RawDependency, ScanResult,
+};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
@@ -209,16 +212,24 @@ pub fn scan_dir_with_options(
         });
     }
 
-    let files: Vec<PathBuf> = builder
+    // One walk, partitioned into manifest paths and source-file paths.
+    let entries: Vec<PathBuf> = builder
         .build()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_type().map(|t| t.is_file()).unwrap_or(false) && is_supported(e.path())
-        })
-        .filter(|e| {
-            !opts.skip_tests_and_examples || !is_test_or_example_path(e.path())
-        })
+        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
         .map(|e| e.path().to_path_buf())
+        .collect();
+
+    let manifest_paths: Vec<&PathBuf> = entries
+        .iter()
+        .filter(|p| p.file_name().and_then(|n| n.to_str()) == Some("Cargo.toml"))
+        .collect();
+
+    let files: Vec<PathBuf> = entries
+        .iter()
+        .filter(|p| is_supported(p))
+        .filter(|p| !opts.skip_tests_and_examples || !is_test_or_example_path(p))
+        .cloned()
         .collect();
 
     let results: Vec<Result<ScanResult, ScanError>> =
@@ -232,6 +243,36 @@ pub fn scan_dir_with_options(
             Err(e) => return Err(e),
         }
     }
+
+    // Manifest discovery → Package artifacts + Contains edges to owned files.
+    let manifests: Vec<manifest::Manifest> = manifest_paths
+        .iter()
+        .filter_map(|p| manifest::parse_cargo_toml(p))
+        .collect();
+
+    for m in &manifests {
+        combined.artifacts.push(RawArtifact {
+            id: format!("{}::package::{}", m.manifest_path, m.name),
+            label: m.name.clone(),
+            kind: ArtifactKind::Package,
+            source_file: m.manifest_path.clone(),
+            source_line: 0,
+        });
+    }
+
+    for file_path in &files {
+        let file_id = file_path.to_string_lossy().replace('\\', "/");
+        if let Some(m) = manifest::owning_manifest(&manifests, &file_id) {
+            combined.dependencies.push(RawDependency {
+                source_id: format!("{}::package::{}", m.manifest_path, m.name),
+                target_id: file_id,
+                kind: DependencyKind::Contains,
+                confidence: Confidence::Extracted,
+                source_line: 0,
+            });
+        }
+    }
+
     Ok(combined)
 }
 

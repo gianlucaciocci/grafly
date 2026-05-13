@@ -44,7 +44,7 @@ struct ExportParams {
 struct GetArtifactsParams {
     /// Absolute or relative path to the directory to scan.
     path: String,
-    /// Filter by artifact kind: File, Class, Struct, Function, Method, Interface, Trait, Enum, Namespace, Import.
+    /// Filter by artifact kind: Package, File, Class, Struct, Function, Method, Interface, Trait, Enum, Namespace, Import.
     kind: Option<String>,
     /// Filter by module ID (0-indexed).
     module_id: Option<usize>,
@@ -222,7 +222,7 @@ impl GraflyServer {
 
     /// Return artifacts, optionally filtered by kind or module.
     #[tool(description = "List artifacts in the dependency map, optionally filtered by kind \
-        (File, Class, Struct, Enum, Interface, Trait, Function, Method, Namespace, Import) \
+        (Package, File, Class, Struct, Enum, Interface, Trait, Function, Method, Namespace, Import) \
         or by module ID. Useful for exploring what lives in a specific module or finding \
         all classes/functions in the codebase.")]
     fn get_artifacts(&self, Parameters(p): Parameters<GetArtifactsParams>) -> String {

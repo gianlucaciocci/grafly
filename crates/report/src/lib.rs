@@ -2,7 +2,7 @@
 
 use grafly_analyze::Analysis;
 use grafly_cluster::Modules;
-use grafly_core::DependencyMap;
+use grafly_core::{ArtifactKind, DependencyKind, DependencyMap};
 
 /// Generate the LLM-discoverable Markdown analysis report.
 ///
@@ -87,6 +87,37 @@ pub fn generate_markdown(
             num_modules,
             top.join(", ")
         ));
+    }
+
+    // ── Package breakdown ─────────────────────────────────────────────────────
+    let mut packages: Vec<(&str, &str, usize)> = map
+        .node_indices()
+        .filter_map(|n| {
+            let a = &map[n];
+            if a.kind != ArtifactKind::Package {
+                return None;
+            }
+            let file_count = map
+                .edges_directed(n, petgraph::Direction::Outgoing)
+                .filter(|e| e.weight().kind == DependencyKind::Contains)
+                .count();
+            Some((a.label.as_str(), a.source_file.as_str(), file_count))
+        })
+        .collect();
+    if !packages.is_empty() {
+        packages.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(b.0)));
+        md.push_str("## Packages\n\n");
+        md.push_str(
+            "Buildable units declared by project manifests (`Cargo.toml`). Each entry \
+             shows the package name, the source files it owns, and the manifest path.\n\n",
+        );
+        for (name, manifest, count) in &packages {
+            md.push_str(&format!(
+                "- **`{}`** — {} source files (`{}`)\n",
+                name, count, manifest
+            ));
+        }
+        md.push('\n');
     }
 
     // ── Module breakdown ──────────────────────────────────────────────────────

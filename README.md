@@ -15,6 +15,7 @@ Grafly uses the architect's vocabulary — what software architects actually cal
 | Term | Meaning |
 |---|---|
 | **Artifact** | A unit of code (file, class, function, ...) |
+| **Package** | A buildable unit declared in a manifest (`Cargo.toml`, ...). Sits above File in the containment hierarchy |
 | **Dependency** | A directed relationship between artifacts |
 | **Dependency Map** | The full graph of artifacts and dependencies |
 | **Module** | A cohesive cluster of artifacts (detected by Leiden) |
@@ -29,6 +30,7 @@ Grafly uses the architect's vocabulary — what software architects actually cal
 
 - **Local-first** — all code scanning runs with tree-sitter, fully offline
 - **Fast** — parallel file scanning via Rayon; single-pass map construction
+- **Package layer** — discovers buildable units from project manifests (currently `Cargo.toml`) and links each source file to its declaring package
 - **Module detection** — Leiden algorithm (better than Louvain, guarantees well-connected modules)
 - **Architecture insights** — hotspots, cross-module couplings, suggested insights
 - **Interactive path queries** — weighted shortest paths that prefer runtime call chains (`Calls`=1) over file-level import shortcuts (`Imports`=5), and BFS subgraphs with a supernode cap to keep neighborhoods focused
@@ -92,7 +94,7 @@ Output files (all in `./grafly-out/` by default):
 | File | Description |
 |---|---|
 | `README.md` | Index of all output files, written for both humans and LLM agents |
-| `grafly_report.md` | Markdown analysis: modules, hotspots, cross-module couplings, suggested questions — LLM-discoverable |
+| `grafly_report.md` | Markdown analysis: packages, modules, hotspots, cross-module couplings, suggested questions — LLM-discoverable |
 | `grafly_knowledge.json` | Full directed dependency map with `source_file:line` on every edge |
 | `grafly_modules.html` | Interactive module-level overview (modules as nodes, edges grouped by relationship kind) |
 | `grafly_artifacts.html` | Interactive artifact-level graph (top-N by degree, Ambiguous edges suppressed for clarity) |

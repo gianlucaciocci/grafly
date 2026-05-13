@@ -7,3 +7,4 @@ edition = "2021"
 grafly-core    = { workspace = true }
 grafly-analyze = { workspace = true }
 grafly-cluster = { workspace = true }
+petgraph       = { workspace = true }
