@@ -142,7 +142,7 @@ fn claude_desktop_config_path() -> Result<PathBuf> {
 
 // ── Server entry construction ───────────────────────────────────────────────
 
-const SERVER_NAME: &str = "grafly";
+const SERVER_NAME: &str = "grafly-mcp";
 
 /// Build the JSON object that represents grafly-mcp in a client's registry.
 fn server_entry(bin: &str) -> Value {
@@ -152,22 +152,59 @@ fn server_entry(bin: &str) -> Value {
     })
 }
 
-/// Determine the path to the `grafly-mcp` binary.
+/// OS-appropriate bare binary name. `.exe` is required on Windows because
+/// many MCP clients spawn via Node's `child_process.spawn`, which doesn't
+/// consult `PATHEXT` the way `cmd`/`powershell` do.
+fn bare_bin_name() -> &'static str {
+    if cfg!(windows) { "grafly-mcp.exe" } else { "grafly-mcp" }
+}
+
+/// Determine the command grafly should write into a client's MCP registry.
 ///
-/// Looks for `grafly-mcp` next to the currently running executable (works for
-/// both `cargo install` layouts and `target/{debug,release}/` layouts). Falls
-/// back to the bare command name `grafly-mcp`, which works if it's on PATH.
+/// Preference order:
+/// 1. The bare binary name (e.g. `grafly-mcp` on Linux/macOS, `grafly-mcp.exe`
+///    on Windows) — when the binary is discoverable on `PATH`. Portable
+///    across machines so a committed `.mcp.json` keeps working everywhere.
+/// 2. The absolute path to a `grafly-mcp` sibling of the currently running
+///    executable — for developers running out of `target/{debug,release}/`
+///    when the bare name isn't on PATH.
+/// 3. The bare name regardless — degenerate fallback so we always emit
+///    *something* runnable rather than nothing.
 pub fn default_mcp_bin() -> String {
+    let bare = bare_bin_name();
+
+    // Prefer the bare name if it's on PATH. Avoids baking a machine-specific
+    // absolute path into a `.mcp.json` that might get checked into git.
+    if which_on_path(bare).is_some() {
+        return bare.to_string();
+    }
+
+    // Fall back to the sibling of the current executable (dev workflow).
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            let name = if cfg!(windows) { "grafly-mcp.exe" } else { "grafly-mcp" };
-            let candidate = parent.join(name);
+            let candidate = parent.join(bare);
             if candidate.exists() {
                 return candidate.to_string_lossy().to_string();
             }
         }
     }
-    "grafly-mcp".to_string()
+
+    // Last resort: emit the bare name and hope the user wires PATH later.
+    bare.to_string()
+}
+
+/// Minimal `which`-style lookup. Walks `PATH` looking for an executable file
+/// with the given name. Doesn't recurse — `PATH` entries are searched in order.
+/// Pulled in-tree to avoid taking on the `which` crate just for this.
+fn which_on_path(name: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 // ── Install / uninstall ─────────────────────────────────────────────────────
@@ -373,7 +410,7 @@ mod tests {
         let content: Value =
             serde_json::from_str(&fs::read_to_string(&outcome.path).unwrap()).unwrap();
         assert_eq!(
-            content.pointer("/mcpServers/grafly/command"),
+            content.pointer("/mcpServers/grafly-mcp/command"),
             Some(&Value::String("grafly-mcp".into()))
         );
         let _ = fs::remove_dir_all(&dir);
@@ -393,7 +430,7 @@ mod tests {
 
         let content: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert!(content.pointer("/mcpServers/other").is_some(), "other should survive");
-        assert!(content.pointer("/mcpServers/grafly").is_some(), "grafly added");
+        assert!(content.pointer("/mcpServers/grafly-mcp").is_some(), "grafly-mcp added");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -413,7 +450,7 @@ mod tests {
         let path = dir.join(".mcp.json");
         fs::write(
             &path,
-            r#"{"mcpServers":{"other":{"command":"other-mcp","args":[]},"grafly":{"command":"grafly-mcp","args":[]}}}"#,
+            r#"{"mcpServers":{"other":{"command":"other-mcp","args":[]},"grafly-mcp":{"command":"grafly-mcp","args":[]}}}"#,
         )
         .unwrap();
 
@@ -421,7 +458,7 @@ mod tests {
         assert_eq!(outcome.action, "removed");
 
         let content: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        assert!(content.pointer("/mcpServers/grafly").is_none());
+        assert!(content.pointer("/mcpServers/grafly-mcp").is_none());
         assert!(content.pointer("/mcpServers/other").is_some());
         let _ = fs::remove_dir_all(&dir);
     }

@@ -45,16 +45,16 @@ unless the MCP server is unavailable.
 
 | User asked about | Call this MCP tool |
 |---|---|
-| Project overview / architecture / "what does this codebase do" | `grafly:analyze` |
-| List artifacts (files, classes, functions) — optionally by kind or module | `grafly:get_artifacts` |
-| Module / subsystem breakdown | `grafly:get_modules` |
-| Bottlenecks / most-depended-on artifacts | `grafly:get_hotspots` |
-| Cross-module dependencies / design smells / coupling | `grafly:get_couplings` |
-| Suggested questions / things worth investigating | `grafly:get_insights` |
-| Regenerate / write output to disk | `grafly:export` |
+| Project overview / architecture / "what does this codebase do" | `grafly-mcp:analyze` |
+| List artifacts (files, classes, functions) — optionally by kind or module | `grafly-mcp:get_artifacts` |
+| Module / subsystem breakdown | `grafly-mcp:get_modules` |
+| Bottlenecks / most-depended-on artifacts | `grafly-mcp:get_hotspots` |
+| Cross-module dependencies / design smells / coupling | `grafly-mcp:get_couplings` |
+| Suggested questions / things worth investigating | `grafly-mcp:get_insights` |
+| Regenerate / write output to disk | `grafly-mcp:export` |
 | "What can I ask?" / "Where do I start?" / kick-off questions | Invoke the `/grafly-suggest-questions` skill instead of answering directly |
 
-If no `grafly:*` tool is available (the MCP server isn't connected), fall back:
+If no `grafly-mcp:*` tool is available (the MCP server isn't connected), fall back:
 1. Read `./grafly-out/grafly_report.md` for the structured summary.
 2. Read `./grafly-out/grafly_knowledge.json` for the full graph (artifacts +
    dependencies with `source_file` and `source_line` on every edge).
@@ -88,7 +88,7 @@ suggested insight, surface it as a follow-up — they probably want to know.
 
 ## If the user invokes `/grafly-ask` with no further context
 
-Treat it as "give me a tour": call `grafly:analyze` on `.`, then summarise the
+Treat it as "give me a tour": call `grafly-mcp:analyze` on `.`, then summarise the
 top 3 modules and top 3 hotspots in 5-7 sentences. Offer follow-up directions
 based on what you saw.
 "#;
@@ -125,7 +125,7 @@ generic template.
    - Top hotspots from the **Hotspots** section (high-degree artifacts)
    - Notable cross-module couplings (interesting bridges between subsystems)
 4. **For deeper specificity, optionally consult `grafly_knowledge.json`** — or
-   call `grafly:get_artifacts` / `grafly:get_hotspots` / `grafly:get_couplings`
+   call `grafly-mcp:get_artifacts` / `grafly-mcp:get_hotspots` / `grafly-mcp:get_couplings`
    if the MCP server is connected.
 5. **Append a "Project-specific questions" section to `SUGGESTED_QUESTIONS.md`.**
    Look for the marker `<!-- Append project-specific questions below this line -->`
@@ -140,7 +140,7 @@ generic template.
    modules, surprising couplings, god-object-shaped hotspots).
 6. **Surface the top 10 as a menu in the chat.** End your reply with a numbered
    list of the 10 highest-leverage questions you appended. Invite the user to
-   pick one to dive into — you'll then call the appropriate `grafly:*` tool or
+   pick one to dive into — you'll then call the appropriate `grafly-mcp:*` tool or
    read the appropriate file to answer it.
 
 ## What to avoid

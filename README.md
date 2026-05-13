@@ -182,7 +182,7 @@ automatically:
 
 | Slash command | What it does |
 |---|---|
-| `/grafly-ask` | Ask any architectural / structural question — overview, modules, hotspots, cross-module couplings, "how does X connect to Y", "what depends on Z" — and the skill routes to the right `grafly:*` MCP tool. Falls back to `./grafly-out/grafly_report.md` if the MCP server isn't connected. |
+| `/grafly-ask` | Ask any architectural / structural question — overview, modules, hotspots, cross-module couplings, "how does X connect to Y", "what depends on Z" — and the skill routes to the right `grafly-mcp:*` MCP tool. Falls back to `./grafly-out/grafly_report.md` if the MCP server isn't connected. |
 | `/grafly-suggest-questions` | Bootstrap a project-specific question list: reads `./grafly-out/SUGGESTED_QUESTIONS.md` + `grafly_report.md`, resolves the placeholders (`<ARTIFACT>` / `<MODULE>` / `<PACKAGE>`) to real names from this codebase, appends a dated section, and surfaces the top 10 as a menu in chat. Useful as a kick-off for onboarding or code review. |
 
 The same suggested-questions workflow is also wired into the install templates
@@ -206,7 +206,7 @@ Add to your `~/.claude/settings.json` (or project `.claude/settings.json`):
 ```json
 {
   "mcpServers": {
-    "grafly": {
+    "grafly-mcp": {
       "command": "grafly-mcp",
       "args": []
     }
