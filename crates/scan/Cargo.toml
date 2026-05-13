@@ -1,0 +1,20 @@
+[package]
+name    = "grafly-scan"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+grafly-core = { workspace = true }
+
+tree-sitter            = { workspace = true }
+tree-sitter-python     = { workspace = true }
+tree-sitter-rust       = { workspace = true }
+tree-sitter-javascript = { workspace = true }
+tree-sitter-typescript = { workspace = true }
+tree-sitter-go         = { workspace = true }
+tree-sitter-java       = { workspace = true }
+
+rayon     = { workspace = true }
+ignore    = { workspace = true }
+anyhow    = { workspace = true }
+thiserror = { workspace = true }

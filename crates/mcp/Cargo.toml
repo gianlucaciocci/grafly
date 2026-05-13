@@ -1,0 +1,23 @@
+[package]
+name    = "grafly-mcp"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "grafly-mcp"
+path = "src/main.rs"
+
+[dependencies]
+grafly-core    = { workspace = true }
+grafly-scan    = { workspace = true }
+grafly-cluster = { workspace = true }
+grafly-analyze = { workspace = true }
+grafly-report  = { workspace = true }
+grafly-export  = { workspace = true }
+
+rmcp       = { workspace = true }
+schemars   = { workspace = true }
+tokio      = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+anyhow     = { workspace = true }

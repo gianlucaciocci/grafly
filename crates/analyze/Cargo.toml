@@ -1,0 +1,9 @@
+[package]
+name    = "grafly-analyze"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+grafly-core = { workspace = true }
+petgraph    = { workspace = true }
+serde       = { workspace = true }
