@@ -602,7 +602,27 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
     println!("  wrote {}", questions_path.display());
 
     println!("\ndone.");
-    println!();
+
+    if report_path.is_some() {
+        // The "Next steps" block is shown first — most users haven't installed
+        // grafly's LLM rules yet, and the suggested-questions hint below is far
+        // more useful once those rules are in place.
+        println!(
+            "\nNext steps — make this analysis discoverable to your LLM:\n\
+             \n  1. Append grafly's rules to your LLM tool's instructions file (so any agent\n\
+             \n     working in this project knows how to use ./grafly-out/):\n\
+             \n         grafly install                  # default: Claude Code (./CLAUDE.md)\n\
+             \n         grafly install --all            # every supported platform\n\
+             \n  2. Register the MCP server so agents can query the dependency map live:\n\
+             \n         grafly mcp install              # default: Claude Code (./.mcp.json)\n\
+             \n         grafly mcp install --all        # every supported MCP client\n\
+             \n     The Claude Code install also wires the /grafly and /grafly-suggest-questions\n\
+             \n     slash commands.\n"
+        );
+    }
+
+    // The "kick-start" hint goes last so it's the most recent thing in the
+    // user's terminal — easiest to copy/paste from there.
     println!("Kick-start a conversation with your LLM. Copy/paste this:");
     println!();
     println!(
@@ -611,16 +631,9 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
         cli.output.join("grafly_knowledge.json").display(),
         questions_path.display(),
     );
-    if report_path.is_some() {
-        println!(
-            "\nNext steps — make this analysis discoverable to LLM agents:\n\
-             \n  1. Append grafly's rules to your LLM tool's instructions file:\n\
-             \n         grafly install                  # default: Claude Code (./CLAUDE.md)\n\
-             \n         grafly install --all            # every supported platform\n\
-             \n  2. Register the MCP server so agents can call grafly's tools live:\n\
-             \n         grafly mcp install              # default: Claude Code (./.mcp.json)\n\
-             \n         grafly mcp install --all        # every supported MCP client\n"
-        );
-    }
+    println!();
+    println!(
+        "  (Or, once `grafly install` + `grafly mcp install` are done, just type /grafly-suggest-questions in Claude Code.)"
+    );
     Ok(())
 }
