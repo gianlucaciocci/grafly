@@ -121,11 +121,10 @@ pub fn install_target(
     target: Target,
     scope: Scope,
     root: &Path,
-    output_dir: &str,
     mcp_bin: &str,
 ) -> Result<TargetOutcome> {
     let rules = if let Some(platform) = target.rules_platform() {
-        Some(install_platform(platform, scope, root, output_dir)?)
+        Some(install_platform(platform, scope, root)?)
     } else {
         None
     };

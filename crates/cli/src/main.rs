@@ -103,10 +103,6 @@ struct AnalyzeArgs {
     #[arg(default_value = ".")]
     path: PathBuf,
 
-    /// Output directory
-    #[arg(short, long, default_value = "./grafly-out")]
-    output: PathBuf,
-
     /// Leiden resolution — higher values produce more, smaller modules
     #[arg(short, long, default_value_t = 1.0)]
     resolution: f64,
@@ -193,11 +189,6 @@ struct InstallArgs {
     #[arg(long, default_value = ".")]
     root: PathBuf,
 
-    /// Output directory referenced by the installed rules.
-    /// Should match the `--output` you pass to `grafly analyze`.
-    #[arg(long, default_value = "./grafly-out")]
-    output_dir: PathBuf,
-
     /// Path to the `grafly-mcp` binary the MCP-aware targets should launch.
     /// Defaults to the bare name `grafly-mcp` when on PATH, otherwise the
     /// sibling of the current `grafly` executable.
@@ -255,7 +246,6 @@ fn resolve_targets_uninstall(args: &UninstallArgs) -> Vec<Target> {
 
 fn run_install(args: InstallArgs) -> Result<()> {
     let targets = resolve_targets_install(&args);
-    let output_str = args.output_dir.to_string_lossy().replace('\\', "/");
     let bin = args
         .bin
         .as_ref()
@@ -270,13 +260,13 @@ fn run_install(args: InstallArgs) -> Result<()> {
         if matches!(target, Target::Claude) {
             installed_claude = true;
         }
-        let outcome = target::install_target(target, args.scope, &args.root, &output_str, &bin)?;
+        let outcome = target::install_target(target, args.scope, &args.root, &bin)?;
         print_install_outcome(&outcome);
     }
 
     println!(
         "\nAny LLM agent reading these configs will now consult `{}` first when answering codebase questions.",
-        output_str
+        install::OUTPUT_DIR
     );
     if installed_claude {
         println!(
@@ -348,9 +338,10 @@ fn print_uninstall_outcome(o: &target::TargetUninstallOutcome) {
 // ── Analyze ──────────────────────────────────────────────────────────────────
 
 fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
+    let output_dir = PathBuf::from(install::OUTPUT_DIR);
     println!("grafly {}", env!("CARGO_PKG_VERSION"));
     println!("  target : {}", cli.path.display());
-    println!("  output : {}", cli.output.display());
+    println!("  output : {}", output_dir.display());
 
     // ── 1. Scan ───────────────────────────────────────────────────────────────
     println!();
@@ -477,8 +468,8 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
     );
 
     // ── Output ────────────────────────────────────────────────────────────────
-    std::fs::create_dir_all(&cli.output)
-        .with_context(|| format!("cannot create output dir {}", cli.output.display()))?;
+    std::fs::create_dir_all(&output_dir)
+        .with_context(|| format!("cannot create output dir {}", output_dir.display()))?;
 
     let html_opts = grafly_export::HtmlOptions {
         max_nodes: if cli.max_html_nodes == 0 {
@@ -511,12 +502,12 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
     for fmt in cli.formats.split(',').map(str::trim) {
         match fmt {
             "json" => {
-                let p = cli.output.join("grafly_knowledge.json");
+                let p = output_dir.join("grafly_knowledge.json");
                 grafly_export::write_json(&map, &p)?;
                 println!("  wrote {}", p.display());
             }
             "html" => {
-                let p = cli.output.join("grafly_artifacts.html");
+                let p = output_dir.join("grafly_artifacts.html");
                 grafly_export::write_html(&map, &html_opts, &p)?;
                 let note = if cli.max_html_nodes > 0 && map.node_count() > cli.max_html_nodes {
                     format!(
@@ -530,7 +521,7 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
                 println!("  wrote {}{}", p.display(), note);
             }
             "html-modules" => {
-                let p = cli.output.join("grafly_modules.html");
+                let p = output_dir.join("grafly_modules.html");
                 grafly_export::write_html_modules(&map, &module_html_opts, &p)?;
                 let note = if cli.max_html_modules > 0 && modules.count() > cli.max_html_modules {
                     format!(
@@ -544,12 +535,12 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
                 println!("  wrote {}{}", p.display(), note);
             }
             "html-packages" => {
-                let p = cli.output.join("grafly_packages.html");
+                let p = output_dir.join("grafly_packages.html");
                 grafly_export::write_html_packages(&map, &package_html_opts, &p)?;
                 println!("  wrote {}", p.display());
             }
             "md" => {
-                let p = cli.output.join("grafly_report.md");
+                let p = output_dir.join("grafly_report.md");
                 let md = grafly_report::generate_markdown(
                     &map,
                     &modules,
@@ -564,37 +555,27 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
         }
     }
 
-    let readme_path = cli.output.join("README.md");
+    let readme_path = output_dir.join("README.md");
     std::fs::write(&readme_path, grafly_report::generate_output_readme())?;
     println!("  wrote {}", readme_path.display());
 
-    let questions_path = cli.output.join("SUGGESTED_QUESTIONS.md");
+    let questions_path = output_dir.join("SUGGESTED_QUESTIONS.md");
     std::fs::write(&questions_path, grafly_report::generate_suggested_questions())?;
     println!("  wrote {}", questions_path.display());
 
     println!("\ndone.");
 
     if report_path.is_some() {
+        println!("\nNext up.");
+        println!("======================================================");
+        println!("Run `grafly install` and start asking questions to your LLM with:");
+        println!("  - /grafly-ask              (Claude Code)");
+        println!("  - /grafly-suggest-questions (Claude Code)");
         println!(
-            "\nNext: run `grafly install` to wire grafly into your LLM \
-             (rules file + MCP server + Claude Code skills, all in one).\n\
-             Default target is Claude Code; pass `--all` to install everywhere supported."
+            "  - other LLMs: just ask architecture questions — the installed\n\
+             \x20   rules file routes them to ./grafly-out automatically."
         );
+        println!("======================================================");
     }
-
-    // The "kick-start" hint goes last so it's the most recent thing in the
-    // user's terminal — easiest to copy/paste from there.
-    println!("\nKick-start a conversation with your LLM. Copy/paste this:");
-    println!();
-    println!(
-        "  > Read {} and {} and append a \"Project-specific questions\" section to {} with the placeholders resolved to real artifact, module, and package names you find. Then suggest the 10 most valuable questions to ask first.",
-        cli.output.join("grafly_report.md").display(),
-        cli.output.join("grafly_knowledge.json").display(),
-        questions_path.display(),
-    );
-    println!();
-    println!(
-        "  (Or, once `grafly install` is done, just type /grafly-suggest-questions in Claude Code.)"
-    );
     Ok(())
 }

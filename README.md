@@ -79,7 +79,7 @@ grafly analyze .
 # `grafly .` is shorthand for the same.
 
 # Specific project
-grafly analyze ~/projects/myapp --output ./reports
+grafly analyze ~/projects/myapp
 
 # Tune module resolution (default 1.0 — higher = more, smaller modules)
 grafly analyze . --resolution 0.5
@@ -96,7 +96,6 @@ grafly analyze . --formats json,html
 | Flag | Default | Description |
 |---|---|---|
 | `<PATH>` (positional) | `.` | Directory to scan |
-| `-o`, `--output <DIR>` | `./grafly-out` | Output directory |
 | `-r`, `--resolution <FLOAT>` | `1.0` | Leiden resolution — higher → more, smaller modules |
 | `-s`, `--seed <INT>` | — | Random seed for deterministic module detection |
 | `-f`, `--formats <CSV>` | `json,html,html-modules,html-packages,md` | Comma-separated output formats: `json`, `html`, `html-modules`, `html-packages`, `md` |
@@ -112,7 +111,7 @@ grafly analyze . --formats json,html
 
 Run `grafly analyze --help` for the same list straight from the binary.
 
-Output files (all in `./grafly-out/` by default):
+Output files (always written to `./grafly-out/` — hardcoded so the rules file, MCP server, and `/grafly-*` skills all agree on where to look):
 
 | File | Description |
 |---|---|

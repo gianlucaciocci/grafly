@@ -54,13 +54,19 @@ pub enum Scope {
 const MARKER_START: &str = "<!-- grafly-section-start -->";
 const MARKER_END: &str = "<!-- grafly-section-end -->";
 
+/// The output directory grafly always writes to and every installed rule file
+/// references. Hardcoded on purpose — the rules, the MCP server, and the
+/// `/grafly-*` skills all assume `./grafly-out/`, so letting the user override
+/// it would silently break the integration.
+pub const OUTPUT_DIR: &str = "./grafly-out";
+
 // ── Content blocks ───────────────────────────────────────────────────────────
 
 /// The core directive shown to every LLM agent. Kept deliberately terse and
 /// imperative — these are *system instructions*, not documentation. Long
 /// explanatory prose tends to get summarised away by agents before it
 /// influences behaviour; short numbered rules survive.
-fn grafly_block_body(output_dir: &str) -> String {
+fn grafly_block_body() -> String {
     format!(
         "## grafly
 
@@ -73,23 +79,23 @@ Rules:
 - Trust confidence: `Extracted` (AST-direct) > `Inferred` (resolved by receiver-aware name lookup) > `Ambiguous` (hint only — never assert as fact).
 - After modifying code in this session, run `grafly analyze .` (or call `grafly-mcp:analyze` via MCP) to refresh the map.
 - When the user asks an open-ended onboarding question (\"what can I ask?\", \"where do I start?\", \"give me onboarding questions\"), read `{out}/SUGGESTED_QUESTIONS.md` and append a dated \"Project-specific questions\" section below the marker `<!-- Append project-specific questions below this line -->`, resolving every `<ARTIFACT>` / `<MODULE>` / `<PACKAGE>` placeholder to a real name from `{out}/grafly_report.md`. Then surface the top 10 as a numbered menu in chat. (Claude Code users: the `/grafly-suggest-questions` slash command does exactly this; `/grafly-ask` answers any specific architectural question afterwards.)",
-        out = output_dir
+        out = OUTPUT_DIR
     )
 }
 
 /// Wrap the body in markers so we can find and remove it cleanly.
-fn marked_block(output_dir: &str) -> String {
+fn marked_block() -> String {
     format!(
         "{}\n{}\n{}",
         MARKER_START,
-        grafly_block_body(output_dir),
+        grafly_block_body(),
         MARKER_END
     )
 }
 
 /// Cursor's `.mdc` format requires YAML frontmatter to mark a rule as
 /// always-applied. The rest of the file is the same markdown block.
-fn cursor_mdc(output_dir: &str) -> String {
+fn cursor_mdc() -> String {
     format!(
         "---
 description: Use grafly's precomputed dependency map for codebase questions.
@@ -98,7 +104,7 @@ alwaysApply: true
 
 {}
 ",
-        marked_block(output_dir)
+        marked_block()
     )
 }
 
@@ -149,7 +155,6 @@ pub fn install_platform(
     platform: Platform,
     scope: Scope,
     project_root: &Path,
-    output_dir: &str,
 ) -> Result<InstallOutcome> {
     let path = target_path(platform, scope, project_root)?;
 
@@ -160,7 +165,7 @@ pub fn install_platform(
             fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
         }
-        let content = cursor_mdc(output_dir);
+        let content = cursor_mdc();
         let existed = path.exists();
         fs::write(&path, content)
             .with_context(|| format!("writing {}", path.display()))?;
@@ -178,7 +183,7 @@ pub fn install_platform(
             .with_context(|| format!("creating {}", parent.display()))?;
     }
 
-    let new_block = marked_block(output_dir);
+    let new_block = marked_block();
     let action = if path.exists() {
         let existing = fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
