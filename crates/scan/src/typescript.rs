@@ -278,4 +278,7 @@ const TS_BUILTINS: &[&str] = &[
     "push", "pop", "shift", "unshift", "slice", "splice", "concat",
     "map", "filter", "reduce", "forEach", "find", "some", "every",
     "toString", "valueOf", "hasOwnProperty",
+    // DOM / Array / String containment helpers; filter so they don't
+    // unique-bind to a user-defined `contains` method.
+    "contains", "includes",
 ];

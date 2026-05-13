@@ -275,5 +275,5 @@ const RUST_BUILTINS: &[&str] = &[
     "into", "from", "to_string", "clone", "as_ref", "as_str", "as_mut",
     "len", "is_empty", "iter", "into_iter", "collect", "map", "filter",
     "ok_or", "ok_or_else", "and_then", "or_else", "unwrap_or", "unwrap_or_else",
-    "push", "pop", "insert", "remove", "get", "contains_key",
+    "push", "pop", "insert", "remove", "get", "contains_key", "contains",
 ];
