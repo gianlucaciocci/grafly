@@ -458,7 +458,7 @@ impl GraflyServer {
                         }
                         "md" => {
                             let p = output.join("grafly_report.md");
-                            let md = grafly_report::generate_markdown(&map, &modules, &analysis);
+                            let md = grafly_report::generate_markdown(&map, &modules, &analysis, None);
                             std::fs::write(&p, md)
                                 .map_err(|e| e.to_string())
                                 .map(|_| written.push(p.to_string_lossy().to_string()))

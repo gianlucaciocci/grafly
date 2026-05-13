@@ -1,10 +1,11 @@
 //! grafly-cluster — detect modules in a dependency map using the Leiden algorithm.
 
-use grafly_core::{ArtifactKind, DependencyMap};
+use grafly_core::{ArtifactKind, DependencyKind, DependencyMap};
 use leiden_rs::{Leiden, LeidenConfig, QualityType};
 use petgraph::graph::{Graph, NodeIndex};
+use petgraph::visit::EdgeRef;
 use petgraph::Undirected;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ModuleDetectionError {
@@ -163,6 +164,136 @@ pub fn detect_modules_with_config(
     }
 
     // ── 5. Derive human-readable module names ────────────────────────────────
+    let names: Vec<String> = members
+        .iter()
+        .map(|nodes| pick_module_name(map, nodes))
+        .collect();
+
+    Ok(Modules {
+        members,
+        names,
+        quality: output.quality,
+    })
+}
+
+/// Minimum descendant count below which intra-package clustering is skipped.
+/// Leiden on a < 5-node graph degenerates to one-node-per-module and adds noise.
+pub const MIN_INTRA_PACKAGE_ARTIFACTS: usize = 5;
+
+/// For each `Package` artifact in the map, run Leiden on the subgraph induced
+/// by its transitive `Contains` descendants. Returns a map from Package
+/// NodeIndex → `Modules` for that package.
+///
+/// This is *additive* to [`detect_modules`] — it doesn't mutate `Artifact.module_id`,
+/// which keeps the global cross-package partition intact. Use both together to
+/// answer (a) "where are the cross-cuts in this codebase?" (global modules) and
+/// (b) "what subsystems exist inside each package?" (intra-package modules).
+///
+/// Packages with fewer than [`MIN_INTRA_PACKAGE_ARTIFACTS`] descendants get
+/// an empty `Modules` result and aren't clustered.
+pub fn detect_modules_within_packages(
+    map: &DependencyMap,
+    config: &DetectionConfig,
+    seed: Option<u64>,
+) -> Result<HashMap<NodeIndex, Modules>, ModuleDetectionError> {
+    let mut result: HashMap<NodeIndex, Modules> = HashMap::new();
+
+    for pkg_idx in map.node_indices() {
+        if map[pkg_idx].kind != ArtifactKind::Package {
+            continue;
+        }
+
+        let descendants = contains_descendants(map, pkg_idx);
+
+        if descendants.len() < MIN_INTRA_PACKAGE_ARTIFACTS {
+            result.insert(pkg_idx, Modules {
+                members: vec![],
+                names: vec![],
+                quality: 0.0,
+            });
+            continue;
+        }
+
+        let modules = leiden_on_induced_subgraph(map, &descendants, config, seed)?;
+        result.insert(pkg_idx, modules);
+    }
+
+    Ok(result)
+}
+
+/// Transitive descendants of `root` via `Contains` edges only. Excludes `root`.
+fn contains_descendants(map: &DependencyMap, root: NodeIndex) -> Vec<NodeIndex> {
+    let mut out = Vec::new();
+    let mut queue: VecDeque<NodeIndex> = VecDeque::new();
+    let mut visited: HashSet<NodeIndex> = HashSet::new();
+    visited.insert(root);
+    queue.push_back(root);
+
+    while let Some(n) = queue.pop_front() {
+        for e in map.edges_directed(n, petgraph::Direction::Outgoing) {
+            if e.weight().kind != DependencyKind::Contains {
+                continue;
+            }
+            let target = e.target();
+            if visited.insert(target) {
+                queue.push_back(target);
+                out.push(target);
+            }
+        }
+    }
+    out
+}
+
+/// Run Leiden on the subgraph of `map` induced on `nodes`. Returned `Modules`
+/// reference the *original* NodeIndexes, not subgraph indices.
+fn leiden_on_induced_subgraph(
+    map: &DependencyMap,
+    nodes: &[NodeIndex],
+    config: &DetectionConfig,
+    seed: Option<u64>,
+) -> Result<Modules, ModuleDetectionError> {
+    let mut shadow: Graph<(), f64, Undirected> = Graph::new_undirected();
+    let mut orig_to_shadow: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+    for &orig in nodes {
+        orig_to_shadow.insert(orig, shadow.add_node(()));
+    }
+    for edge in map.edge_indices() {
+        let (src, dst) = map.edge_endpoints(edge).unwrap();
+        if let (Some(&ws), Some(&wd)) = (orig_to_shadow.get(&src), orig_to_shadow.get(&dst)) {
+            shadow.update_edge(ws, wd, 1.0);
+        }
+    }
+
+    let leiden_graph = leiden_rs::convert::petgraph::from_petgraph(&shadow)
+        .map_err(|e| ModuleDetectionError::Conversion(e.to_string()))?;
+
+    let mut builder = LeidenConfig::builder()
+        .resolution(1.0)
+        .quality(QualityType::Modularity)
+        .max_iterations(config.max_iterations)
+        .epsilon(config.epsilon)
+        .min_iterations(config.min_iterations)
+        .skip_refinement(config.skip_refinement);
+    if let Some(s) = seed {
+        builder = builder.seed(s);
+    }
+
+    let output = Leiden::new(builder.build())
+        .run(&leiden_graph)
+        .map_err(|e| ModuleDetectionError::Leiden(e.to_string()))?;
+
+    let num_modules = output.partition.num_communities();
+    let mut members: Vec<Vec<NodeIndex>> = vec![Vec::new(); num_modules];
+    let shadow_to_orig: HashMap<NodeIndex, NodeIndex> =
+        orig_to_shadow.iter().map(|(&k, &v)| (v, k)).collect();
+
+    for (shadow_id, module_id) in output.partition.iter() {
+        let shadow_idx = NodeIndex::new(shadow_id);
+        if let Some(&orig_idx) = shadow_to_orig.get(&shadow_idx) {
+            members[module_id].push(orig_idx);
+        }
+    }
+
     let names: Vec<String> = members
         .iter()
         .map(|nodes| pick_module_name(map, nodes))

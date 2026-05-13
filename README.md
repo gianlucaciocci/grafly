@@ -31,7 +31,7 @@ Grafly uses the architect's vocabulary — what software architects actually cal
 - **Local-first** — all code scanning runs with tree-sitter, fully offline
 - **Fast** — parallel file scanning via Rayon; single-pass map construction
 - **Package layer** — discovers buildable units from project manifests (`Cargo.toml`, `pyproject.toml`, `package.json`, `go.mod`), links each source file to its declaring package, and flags binary entry points
-- **Module detection** — Leiden algorithm (better than Louvain, guarantees well-connected modules)
+- **Module detection** — Leiden algorithm runs both globally (cross-package modules) and within each package (fine-grained subsystems), so you can see both "where the cross-cuts are" and "what lives inside each crate"
 - **Architecture insights** — hotspots, cross-module couplings, suggested insights
 - **Interactive path queries** — weighted shortest paths that prefer runtime call chains (`Calls`=1) over file-level import shortcuts (`Imports`=5), and BFS subgraphs with a supernode cap to keep neighborhoods focused
 - **Interactive HTML** — vis-network map with module colours, click-to-inspect
