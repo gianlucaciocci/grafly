@@ -320,8 +320,9 @@ fn run_mcp_install(args: McpInstallArgs) -> Result<()> {
         );
     }
 
-    // When Claude Code is among the targets, also install the `/grafly` skill
-    // so the user has a slash command that routes to the MCP tools.
+    // When Claude Code is among the targets, also install the grafly slash
+    // commands (/grafly-ask, /grafly-suggest-questions) so the user has
+    // dedicated entry points that route to the MCP tools.
     if installs_claude_code {
         for o in skill::install_claude_skill()? {
             println!("  [{:>9}] {:<28} {}", o.action, o.label, o.path.display());
@@ -334,8 +335,8 @@ fn run_mcp_install(args: McpInstallArgs) -> Result<()> {
     );
     if installs_claude_code {
         println!(
-            "In Claude Code, type `/grafly` to invoke the skill — it routes the user's question \
-             to the right MCP tool."
+            "In Claude Code, type `/grafly-ask` to send a codebase question to the right MCP \
+             tool, or `/grafly-suggest-questions` to bootstrap a project-specific question list."
         );
     }
     Ok(())
@@ -616,7 +617,7 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
              \n  2. Register the MCP server so agents can query the dependency map live:\n\
              \n         grafly mcp install              # default: Claude Code (./.mcp.json)\n\
              \n         grafly mcp install --all        # every supported MCP client\n\
-             \n     The Claude Code install also wires the /grafly and /grafly-suggest-questions\n\
+             \n     The Claude Code install also wires the /grafly-ask and /grafly-suggest-questions\n\
              \n     slash commands.\n"
         );
     }

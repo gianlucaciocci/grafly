@@ -93,7 +93,7 @@ Rules:
 - For \"how does X relate to Y\" / \"what calls Z\" / \"what depends on W\", query `{out}/grafly_knowledge.json` directly (or the MCP tools). Every dependency has `source_file` and `source_line` — cite them as `path:line` in your answer.
 - Trust confidence: `Extracted` (AST-direct) > `Inferred` (resolved by receiver-aware name lookup) > `Ambiguous` (hint only — never assert as fact).
 - After modifying code in this session, run `grafly analyze .` (or call `grafly:analyze` via MCP) to refresh the map.
-- When the user asks an open-ended onboarding question (\"what can I ask?\", \"where do I start?\", \"give me onboarding questions\"), read `{out}/SUGGESTED_QUESTIONS.md` and append a dated \"Project-specific questions\" section below the marker `<!-- Append project-specific questions below this line -->`, resolving every `<ARTIFACT>` / `<MODULE>` / `<PACKAGE>` placeholder to a real name from `{out}/grafly_report.md`. Then surface the top 10 as a numbered menu in chat. (Claude Code users: the `/grafly-suggest-questions` slash command does exactly this.)",
+- When the user asks an open-ended onboarding question (\"what can I ask?\", \"where do I start?\", \"give me onboarding questions\"), read `{out}/SUGGESTED_QUESTIONS.md` and append a dated \"Project-specific questions\" section below the marker `<!-- Append project-specific questions below this line -->`, resolving every `<ARTIFACT>` / `<MODULE>` / `<PACKAGE>` placeholder to a real name from `{out}/grafly_report.md`. Then surface the top 10 as a numbered menu in chat. (Claude Code users: the `/grafly-suggest-questions` slash command does exactly this; `/grafly-ask` answers any specific architectural question afterwards.)",
         out = output_dir
     )
 }

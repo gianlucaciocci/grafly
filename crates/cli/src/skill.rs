@@ -2,16 +2,20 @@
 //!
 //! The Claude Code "skill" mechanism lets a user define a slash command
 //! that maps to a markdown brief the agent loads on invocation. Installing
-//! the grafly skill means:
+//! the grafly skills means:
 //!
-//! 1. Writing `~/.claude/skills/grafly/SKILL.md` — the skill brief that tells
-//!    the agent how to answer codebase questions using grafly's MCP tools
-//!    (or, as a fallback, the static `grafly-out/` files).
-//! 2. Adding a marker-bracketed registration to `~/.claude/CLAUDE.md` so the
-//!    agent knows the skill exists and what `/grafly` should do.
+//! 1. Writing `~/.claude/skills/<name>/SKILL.md` for each skill grafly ships:
+//!    - `grafly-ask` — answer architectural / structural codebase questions
+//!      via grafly's MCP tools (falling back to the static `grafly-out/` files).
+//!    - `grafly-suggest-questions` — bootstrap a project-specific question
+//!      list by resolving placeholders in `SUGGESTED_QUESTIONS.md`.
+//! 2. Adding a single marker-bracketed registration to `~/.claude/CLAUDE.md`
+//!    so the agent knows both slash commands exist.
 //!
-//! Both are installed when `grafly mcp install --client claude-code` runs.
-//! `grafly mcp uninstall --client claude-code` removes both cleanly.
+//! All of the above is installed when `grafly mcp install --client claude-code`
+//! runs. `grafly mcp uninstall --client claude-code` removes them cleanly, and
+//! the install also sweeps up legacy skill directories from older grafly
+//! versions (see [`LEGACY_SKILL_NAMES`]).
 
 use anyhow::{Context, Result};
 use std::fs;
@@ -23,15 +27,15 @@ use std::path::PathBuf;
 const SKILL_MARKER_START: &str = "<!-- grafly-skill-start -->";
 const SKILL_MARKER_END: &str = "<!-- grafly-skill-end -->";
 
-/// The `SKILL.md` content that Claude loads when the user types `/grafly`.
+/// The `SKILL.md` content that Claude loads when the user types `/grafly-ask`.
 /// Imperative, action-routing — the agent should read this once and immediately
 /// know which MCP tool to call for which question.
 const SKILL_CONTENT: &str = r#"---
-name: grafly
-description: Analyze and query the codebase using grafly's precomputed dependency map and MCP tools. Trigger when the user types `/grafly` or asks structural/architectural questions about the codebase.
+name: grafly-ask
+description: Ask any architectural / structural question about the codebase — overview, modules, hotspots, cross-module couplings, "how does X connect to Y", "what depends on Z" — and route it to the right grafly MCP tool. Trigger when the user types `/grafly-ask` or asks structural/architectural questions about the codebase.
 ---
 
-# grafly skill
+# grafly-ask skill
 
 When invoked, answer codebase and architecture questions using grafly's tools.
 Match the user's intent to the right MCP tool — do NOT read source files first
@@ -48,7 +52,7 @@ unless the MCP server is unavailable.
 | Cross-module dependencies / design smells / coupling | `grafly:get_couplings` |
 | Suggested questions / things worth investigating | `grafly:get_insights` |
 | Regenerate / write output to disk | `grafly:export` |
-| "What can I ask?" / "Where do I start?" / kick-off questions | Invoke the `grafly-suggest-questions` skill (see below) instead of answering directly |
+| "What can I ask?" / "Where do I start?" / kick-off questions | Invoke the `/grafly-suggest-questions` skill instead of answering directly |
 
 If no `grafly:*` tool is available (the MCP server isn't connected), fall back:
 1. Read `./grafly-out/grafly_report.md` for the structured summary.
@@ -82,7 +86,7 @@ Never paraphrase or guess locations — they're already in the data.
 If the user's question revealed a hotspot, a cross-module coupling, or a
 suggested insight, surface it as a follow-up — they probably want to know.
 
-## If the user invokes `/grafly` with no further context
+## If the user invokes `/grafly-ask` with no further context
 
 Treat it as "give me a tour": call `grafly:analyze` on `.`, then summarise the
 top 3 modules and top 3 hotspots in 5-7 sentences. Offer follow-up directions
@@ -109,7 +113,8 @@ generic template.
 
 1. **Check that grafly output exists.** Look for `./grafly-out/grafly_report.md`
    and `./grafly-out/SUGGESTED_QUESTIONS.md`. If they're missing, tell the user
-   to run `grafly analyze .` first and stop.
+   to run `grafly analyze .` first and stop. (If the user wants to actually
+   answer one of the suggested questions afterwards, invoke `/grafly-ask`.)
 2. **Read the placeholder template.** Open `./grafly-out/SUGGESTED_QUESTIONS.md`
    and skim the structure. The placeholders (`<ARTIFACT>`, `<MODULE>`,
    `<PACKAGE>`) need to be resolved to real names from this project.
@@ -163,9 +168,15 @@ fn home_dir() -> Result<PathBuf> {
 /// keyed by their slash-command name. Iterating this list keeps install and
 /// uninstall symmetric — adding a new skill is one row here, not a refactor.
 const SKILLS: &[(&str, &str)] = &[
-    ("grafly", SKILL_CONTENT),
+    ("grafly-ask", SKILL_CONTENT),
     ("grafly-suggest-questions", SUGGEST_QUESTIONS_SKILL_CONTENT),
 ];
+
+/// Older skill directory names that grafly used to install. Listed here so
+/// `grafly mcp install` and `grafly mcp uninstall` clean them up on upgrade —
+/// otherwise a user who installed an older grafly would be left with a stale
+/// `/grafly` slash command pointing at out-of-date content.
+const LEGACY_SKILL_NAMES: &[&str] = &["grafly"];
 
 fn skill_file_path(name: &str) -> Result<PathBuf> {
     Ok(home_dir()?
@@ -182,8 +193,10 @@ fn registration_file_path() -> Result<PathBuf> {
 fn registration_block() -> String {
     format!(
         "{}\n# grafly skills\n\
-         - **grafly** (`~/.claude/skills/grafly/SKILL.md`) — analyze and query the project's \
-         codebase via grafly's MCP server. Trigger: `/grafly`\n\
+         - **grafly-ask** (`~/.claude/skills/grafly-ask/SKILL.md`) — answer any architectural / \
+         structural question about the project's codebase (overview, modules, hotspots, couplings, \
+         path queries) via grafly's MCP server, falling back to `./grafly-out/grafly_report.md`. \
+         Trigger: `/grafly-ask`\n\
          - **grafly-suggest-questions** (`~/.claude/skills/grafly-suggest-questions/SKILL.md`) — \
          generate a project-specific list of architectural questions, resolving placeholders in \
          `./grafly-out/SUGGESTED_QUESTIONS.md` to real artifact/module/package names. \
@@ -207,17 +220,47 @@ pub struct SkillOutcome {
 /// the [`SKILLS`] list is the single source of truth.
 fn skill_label(name: &str) -> &'static str {
     match name {
-        "grafly" => "Claude Code skill (/grafly)",
+        "grafly-ask" => "Claude Code skill (/grafly-ask)",
         "grafly-suggest-questions" => "Claude Code skill (/grafly-suggest-questions)",
+        "grafly" => "Claude Code skill (/grafly — legacy)",
         _ => "Claude Code skill",
     }
+}
+
+/// Best-effort: remove the SKILL.md (and prune the empty parent directory) for
+/// any [`LEGACY_SKILL_NAMES`] entry that exists on disk. Used by both install
+/// (to clean up after an upgrade) and uninstall.
+///
+/// Adds one [`SkillOutcome`] per legacy directory that existed; absent legacy
+/// entries are silently ignored so the install summary stays clean.
+fn cleanup_legacy_skills(outcomes: &mut Vec<SkillOutcome>) -> Result<()> {
+    for name in LEGACY_SKILL_NAMES {
+        let path = skill_file_path(name)?;
+        if !path.exists() {
+            continue;
+        }
+        fs::remove_file(&path)
+            .with_context(|| format!("removing legacy skill {}", path.display()))?;
+        if let Some(parent) = path.parent() {
+            let _ = fs::remove_dir(parent);
+        }
+        outcomes.push(SkillOutcome {
+            label: skill_label(name),
+            path,
+            action: "removed",
+        });
+    }
+    Ok(())
 }
 
 /// Install all Claude Code skills shipped by grafly: write each `SKILL.md`
 /// and add a single registration block (covering every skill) to
 /// `~/.claude/CLAUDE.md`. Returns one [`SkillOutcome`] per file written.
 pub fn install_claude_skill() -> Result<Vec<SkillOutcome>> {
-    let mut outcomes: Vec<SkillOutcome> = Vec::with_capacity(SKILLS.len() + 1);
+    let mut outcomes: Vec<SkillOutcome> = Vec::with_capacity(SKILLS.len() + 2);
+
+    // 0. Remove anything from a prior grafly version that we no longer ship.
+    cleanup_legacy_skills(&mut outcomes)?;
 
     // 1. Every SKILL.md
     for (name, content) in SKILLS {
@@ -297,14 +340,17 @@ pub fn install_claude_skill() -> Result<Vec<SkillOutcome>> {
 /// `SKILL.md` and the (single) registration block. Returns one
 /// [`SkillOutcome`] per file touched.
 pub fn uninstall_claude_skill() -> Result<Vec<SkillOutcome>> {
-    let mut outcomes: Vec<SkillOutcome> = Vec::with_capacity(SKILLS.len() + 1);
+    let mut outcomes: Vec<SkillOutcome> = Vec::with_capacity(SKILLS.len() + 2);
+
+    // Also sweep up legacy skill names we no longer ship.
+    cleanup_legacy_skills(&mut outcomes)?;
 
     for (name, _) in SKILLS {
         let skill_path = skill_file_path(name)?;
         let action = if skill_path.exists() {
             fs::remove_file(&skill_path)
                 .with_context(|| format!("removing {}", skill_path.display()))?;
-            // Best-effort: prune empty parent dir we created (e.g. skills/grafly).
+            // Best-effort: prune empty parent dir we created (e.g. skills/grafly-ask).
             if let Some(parent) = skill_path.parent() {
                 let _ = fs::remove_dir(parent);
             }

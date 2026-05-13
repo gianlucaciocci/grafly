@@ -174,7 +174,7 @@ The MCP server exposes ten tools: `analyze`, `get_artifacts`, `get_modules`,
 Other entries in the same config file are preserved — grafly only mutates its
 own `grafly` server entry.
 
-### The `/grafly` slash commands (Claude Code)
+### The `/grafly-*` slash commands (Claude Code)
 
 When you run `grafly mcp install` with the Claude Code client, two skill briefs
 plus a marker-bracketed registration in `~/.claude/CLAUDE.md` are installed
@@ -182,7 +182,7 @@ automatically:
 
 | Slash command | What it does |
 |---|---|
-| `/grafly` | Route any architectural / structural question to the right `grafly:*` MCP tool (e.g. "list the modules" → `grafly:get_modules`, "what's a hotspot here?" → `grafly:get_hotspots`). Falls back to `./grafly-out/grafly_report.md` if the MCP server isn't connected. |
+| `/grafly-ask` | Ask any architectural / structural question — overview, modules, hotspots, cross-module couplings, "how does X connect to Y", "what depends on Z" — and the skill routes to the right `grafly:*` MCP tool. Falls back to `./grafly-out/grafly_report.md` if the MCP server isn't connected. |
 | `/grafly-suggest-questions` | Bootstrap a project-specific question list: reads `./grafly-out/SUGGESTED_QUESTIONS.md` + `grafly_report.md`, resolves the placeholders (`<ARTIFACT>` / `<MODULE>` / `<PACKAGE>`) to real names from this codebase, appends a dated section, and surfaces the top 10 as a menu in chat. Useful as a kick-off for onboarding or code review. |
 
 The same suggested-questions workflow is also wired into the install templates
