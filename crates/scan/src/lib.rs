@@ -19,7 +19,7 @@ pub mod common;
 pub mod manifest;
 
 use grafly_core::{
-    ArtifactKind, Confidence, DependencyKind, RawArtifact, RawDependency, ScanResult,
+    ArtifactKind, Confidence, DependencyKind, RawArtifact, RawDependency, ScanResult, Visibility,
 };
 use ignore::WalkBuilder;
 use rayon::prelude::*;
@@ -283,6 +283,7 @@ pub fn scan_dir_with_options(
             source_line: 0,
             description: m.description.clone(),
             is_entry_point: m.is_binary,
+            visibility: Visibility::Unknown,
         });
     }
 

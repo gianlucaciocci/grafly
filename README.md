@@ -21,6 +21,7 @@ Grafly uses the architect's vocabulary — what software architects actually cal
 | **Module** | A cohesive cluster of artifacts (detected by Leiden) |
 | **Hotspot** | An artifact with disproportionately high centrality |
 | **Coupling** | A dependency that crosses module boundaries |
+| **Visibility** | Source-level access of a declared symbol — `Public`, `Crate`, `Private`, `Unknown`. Drives the public-surface filter on hotspots, couplings, and the artifact HTML |
 | **Scan** | Discovering artifacts and dependencies from source |
 | **Insight** | A finding the analysis surfaces about the architecture |
 
@@ -31,6 +32,7 @@ Grafly uses the architect's vocabulary — what software architects actually cal
 - **Local-first** — all code scanning runs with tree-sitter, fully offline
 - **Fast** — parallel file scanning via Rayon; single-pass map construction
 - **Package layer** — discovers buildable units from project manifests (`Cargo.toml`, `pyproject.toml`, `package.json`, `go.mod`), links each source file to its declaring package, and flags binary entry points
+- **Visibility-aware** — detects `Public` / `Crate` / `Private` on each declared symbol (Rust `pub`, Python underscore, JS `export`, Go capitalisation, Java modifiers, TS accessibility) and filters internal helpers out of the architecture view by default
 - **Module detection** — Leiden algorithm runs both globally (cross-package modules) and within each package (fine-grained subsystems), so you can see both "where the cross-cuts are" and "what lives inside each crate"
 - **Architecture insights** — hotspots, cross-module couplings, suggested insights
 - **Interactive path queries** — weighted shortest paths that prefer runtime call chains (`Calls`=1) over file-level import shortcuts (`Imports`=5), and BFS subgraphs with a supernode cap to keep neighborhoods focused
@@ -106,6 +108,7 @@ grafly analyze . --formats json,html
 | `--include-imports` | `false` | Keep `Imports` edges in the output. Used for clustering either way; dropped after clustering by default because they create misleading `A → shared_file → B` path shortcuts and inflate hotspot degrees |
 | `--no-intra-package-modules` | `false` | Skip the intra-package Leiden pass. By default grafly clusters within each `Package` separately (in addition to the global cross-package modules), surfacing fine-grained subsystems inside each crate/package |
 | `--leiden-thorough` | `false` | Use leiden-rs's stock high-quality defaults (`max_iter=100`, `epsilon=1e-10`) instead of grafly's fast defaults (`max_iter=30`, `epsilon=1e-8`, `min_iter=3`). Adds time on large codebases for a sub-percent quality gain |
+| `--include-private` | `false` | Show `Visibility::Private` symbols in the artifact HTML, hotspots, and couplings. Hidden by default so the architecture view stays focused on the public surface; always kept in `grafly_knowledge.json` regardless |
 
 Run `grafly analyze --help` for the same list straight from the binary.
 

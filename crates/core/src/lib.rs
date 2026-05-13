@@ -59,6 +59,40 @@ pub enum Confidence {
     Ambiguous,
 }
 
+/// Source-level visibility of a declared symbol. Drives filtering of internal
+/// helpers from architecture-level views (HTML, hotspots, couplings).
+///
+/// Per-language mapping:
+/// - **Rust**: `pub` → Public, `pub(crate)` → Crate, anything else → Private.
+/// - **Python**: name in `__all__` (when present) or no leading underscore →
+///   Public; leading underscore → Private. Module-level only; methods follow
+///   the same underscore rule.
+/// - **JavaScript / TypeScript**: top-level `export` → Public; otherwise Private.
+/// - **Go**: uppercase first letter → Public; lowercase → Private (no Crate).
+/// - **Java**: `public` → Public, `private` → Private, `protected` /
+///   package-private → Crate.
+///
+/// `Unknown` is the default for kinds where visibility isn't tracked (files,
+/// packages, namespaces) and for languages that haven't been wired up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Visibility {
+    Public,
+    Crate,
+    Private,
+    Unknown,
+}
+
+impl Default for Visibility {
+    fn default() -> Self {
+        Visibility::Unknown
+    }
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_visibility_unknown(v: &Visibility) -> bool {
+    matches!(v, Visibility::Unknown)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Artifact {
     pub id: String,
@@ -79,6 +113,12 @@ pub struct Artifact {
     /// Always `false` for other artifact kinds.
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_entry_point: bool,
+    /// Declared visibility of the artifact in its source language. See
+    /// [`Visibility`] for the per-language mapping. Tracked only for
+    /// Function / Method / Class / Struct / Enum / Trait / Interface kinds;
+    /// other kinds are always `Unknown`.
+    #[serde(default, skip_serializing_if = "is_visibility_unknown")]
+    pub visibility: Visibility,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -136,6 +176,8 @@ pub struct RawArtifact {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_entry_point: bool,
+    #[serde(default, skip_serializing_if = "is_visibility_unknown")]
+    pub visibility: Visibility,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -221,6 +263,7 @@ impl MapBuilder {
                 module_id: None,
                 description: raw.description,
                 is_entry_point: raw.is_entry_point,
+                visibility: raw.visibility,
             });
             self.id_to_index.insert(raw.id, idx);
         }

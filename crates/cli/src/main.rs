@@ -175,6 +175,13 @@ struct AnalyzeArgs {
     /// modules), surfacing fine-grained subsystems inside each crate/package.
     #[arg(long, default_value_t = false)]
     no_intra_package_modules: bool,
+
+    /// Include private/internal symbols in the artifact HTML, hotspots, and
+    /// cross-module couplings. By default `Visibility::Private` artifacts are
+    /// filtered out so the architecture view stays focused on the public
+    /// surface area. They're always kept in `grafly_knowledge.json` regardless.
+    #[arg(long, default_value_t = false)]
+    include_private: bool,
 }
 
 #[derive(Args)]
@@ -485,7 +492,12 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
 
     // ── 4. Analyze ────────────────────────────────────────────────────────────
     let pb = spinner("[4/4] analyzing");
-    let analysis = grafly_analyze::analyze(&map);
+    let analysis = grafly_analyze::analyze_with_options(
+        &map,
+        grafly_analyze::AnalysisOptions {
+            include_private: cli.include_private,
+        },
+    );
     pb.finish_and_clear();
     println!(
         "[4/4] analyzing ... {} hotspots, {} cross-module couplings",
@@ -505,6 +517,7 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
         },
         module_names: modules.names.clone(),
         include_ambiguous: cli.html_include_ambiguous,
+        include_private: cli.include_private,
     };
     let module_html_opts = grafly_export::ModuleHtmlOptions {
         max_modules: if cli.max_html_modules == 0 {

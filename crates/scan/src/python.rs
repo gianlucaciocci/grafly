@@ -1,4 +1,6 @@
-use crate::common::{classify_call_target, last_identifier, walk_descendants, Scanner};
+use crate::common::{
+    classify_call_target, last_identifier, visibility_from_python_name, walk_descendants, Scanner,
+};
 use grafly_core::{ArtifactKind, ScanResult};
 use std::path::Path;
 use tree_sitter::{Node, Parser};
@@ -72,7 +74,14 @@ fn emit_class(node: &Node, file_id: &str, s: &mut Scanner) {
     }
     let class_id = format!("{}::class::{}", file_id, name);
     let line = node.start_position().row + 1;
-    s.add_artifact(class_id.clone(), name.clone(), ArtifactKind::Class, line);
+    let vis = visibility_from_python_name(&name);
+    s.add_artifact_with_visibility(
+        class_id.clone(),
+        name.clone(),
+        ArtifactKind::Class,
+        line,
+        vis,
+    );
     s.contains(file_id, &class_id, line);
 
     // class Foo(Base, Other): → Extends edges
@@ -120,7 +129,8 @@ fn emit_function(node: &Node, file_id: &str, _parent_class: Option<&str>, s: &mu
     }
     let fn_id = format!("{}::fn::{}", file_id, name);
     let line = node.start_position().row + 1;
-    s.add_artifact(fn_id.clone(), name, ArtifactKind::Function, line);
+    let vis = visibility_from_python_name(&name);
+    s.add_artifact_with_visibility(fn_id.clone(), name, ArtifactKind::Function, line, vis);
     s.contains(file_id, &fn_id, line);
 
     if let Some(body) = node.child_by_field_name("body") {
@@ -135,7 +145,8 @@ fn emit_method(node: &Node, _file_id: &str, class_id: &str, class_name: &str, s:
     }
     let mid = format!("{}::method::{}", class_id, name);
     let line = node.start_position().row + 1;
-    s.add_artifact(mid.clone(), name, ArtifactKind::Method, line);
+    let vis = visibility_from_python_name(&name);
+    s.add_artifact_with_visibility(mid.clone(), name, ArtifactKind::Method, line, vis);
     s.contains(class_id, &mid, line);
 
     if let Some(body) = node.child_by_field_name("body") {

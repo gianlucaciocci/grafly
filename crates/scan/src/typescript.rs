@@ -1,5 +1,5 @@
 use crate::common::{classify_call_target, last_identifier, walk_descendants, Scanner};
-use grafly_core::{ArtifactKind, DependencyKind, ScanResult};
+use grafly_core::{ArtifactKind, DependencyKind, ScanResult, Visibility};
 use std::path::Path;
 use tree_sitter::{Node, Parser};
 
@@ -37,15 +37,20 @@ fn scan_with_language(
     let mut cursor = root.walk();
 
     for child in root.children(&mut cursor) {
-        scan_ts_node(&child, &file_id, &mut s);
+        scan_ts_node(&child, &file_id, false, &mut s);
     }
 
     s.result
 }
 
-fn scan_ts_node(child: &Node, file_id: &str, s: &mut Scanner) {
+fn scan_ts_node(child: &Node, file_id: &str, exported: bool, s: &mut Scanner) {
+    let vis = if exported {
+        Visibility::Public
+    } else {
+        Visibility::Private
+    };
     match child.kind() {
-        "class_declaration" | "abstract_class_declaration" => emit_class(child, file_id, s),
+        "class_declaration" | "abstract_class_declaration" => emit_class(child, file_id, vis, s),
 
         "interface_declaration" => {
             let name = s.field_text(child, "name");
@@ -54,7 +59,7 @@ fn scan_ts_node(child: &Node, file_id: &str, s: &mut Scanner) {
             }
             let line = child.start_position().row + 1;
             let id = format!("{}::interface::{}", file_id, name);
-            s.add_artifact(id.clone(), name, ArtifactKind::Interface, line);
+            s.add_artifact_with_visibility(id.clone(), name, ArtifactKind::Interface, line, vis);
             s.contains(file_id, &id, line);
         }
 
@@ -65,7 +70,7 @@ fn scan_ts_node(child: &Node, file_id: &str, s: &mut Scanner) {
             }
             let line = child.start_position().row + 1;
             let id = format!("{}::type::{}", file_id, name);
-            s.add_artifact(id.clone(), name, ArtifactKind::Struct, line);
+            s.add_artifact_with_visibility(id.clone(), name, ArtifactKind::Struct, line, vis);
             s.contains(file_id, &id, line);
         }
 
@@ -76,11 +81,11 @@ fn scan_ts_node(child: &Node, file_id: &str, s: &mut Scanner) {
             }
             let line = child.start_position().row + 1;
             let id = format!("{}::enum::{}", file_id, name);
-            s.add_artifact(id.clone(), name, ArtifactKind::Enum, line);
+            s.add_artifact_with_visibility(id.clone(), name, ArtifactKind::Enum, line, vis);
             s.contains(file_id, &id, line);
         }
 
-        "function_declaration" => emit_function(child, file_id, file_id, None, s),
+        "function_declaration" => emit_function(child, file_id, file_id, None, vis, s),
 
         "import_statement" => {
             let line = child.start_position().row + 1;
@@ -92,7 +97,7 @@ fn scan_ts_node(child: &Node, file_id: &str, s: &mut Scanner) {
         "export_statement" => {
             let mut ec = child.walk();
             for inner in child.children(&mut ec) {
-                scan_ts_node(&inner, file_id, s);
+                scan_ts_node(&inner, file_id, true, s);
             }
         }
 
@@ -100,14 +105,20 @@ fn scan_ts_node(child: &Node, file_id: &str, s: &mut Scanner) {
     }
 }
 
-fn emit_class(node: &Node, file_id: &str, s: &mut Scanner) {
+fn emit_class(node: &Node, file_id: &str, class_vis: Visibility, s: &mut Scanner) {
     let name = s.field_text(node, "name");
     if name.is_empty() {
         return;
     }
     let class_id = format!("{}::class::{}", file_id, name);
     let line = node.start_position().row + 1;
-    s.add_artifact(class_id.clone(), name.clone(), ArtifactKind::Class, line);
+    s.add_artifact_with_visibility(
+        class_id.clone(),
+        name.clone(),
+        ArtifactKind::Class,
+        line,
+        class_vis,
+    );
     s.contains(file_id, &class_id, line);
 
     if let Some(heritage) = node.child_by_field_name("heritage") {
@@ -151,7 +162,16 @@ fn emit_class(node: &Node, file_id: &str, s: &mut Scanner) {
                 }
                 let mid = format!("{}::method::{}", class_id, mname);
                 let mline = method.start_position().row + 1;
-                s.add_artifact(mid.clone(), mname, ArtifactKind::Method, mline);
+                // TS method visibility: explicit accessibility modifier wins,
+                // else `#`-prefix is private, else inherit class visibility.
+                let mvis = ts_method_visibility(&method, &mname, class_vis, s);
+                s.add_artifact_with_visibility(
+                    mid.clone(),
+                    mname,
+                    ArtifactKind::Method,
+                    mline,
+                    mvis,
+                );
                 s.contains(&class_id, &mid, mline);
                 if let Some(mbody) = method.child_by_field_name("body") {
                     walk_for_calls(mbody, &mid, Some(&name), s);
@@ -161,11 +181,39 @@ fn emit_class(node: &Node, file_id: &str, s: &mut Scanner) {
     }
 }
 
+/// Resolve a TS class member's visibility, in priority order:
+/// 1. `#name` (ES2022 private field) → Private
+/// 2. Explicit `public` / `protected` / `private` accessibility modifier
+/// 3. Inherit class visibility (Public if class is exported, else Private)
+fn ts_method_visibility(
+    method: &Node,
+    mname: &str,
+    class_vis: Visibility,
+    s: &Scanner,
+) -> Visibility {
+    if mname.starts_with('#') {
+        return Visibility::Private;
+    }
+    let mut c = method.walk();
+    for inner in method.children(&mut c) {
+        if inner.kind() == "accessibility_modifier" {
+            return match s.text(&inner).trim() {
+                "public" => Visibility::Public,
+                "protected" => Visibility::Crate,
+                "private" => Visibility::Private,
+                _ => class_vis,
+            };
+        }
+    }
+    class_vis
+}
+
 fn emit_function(
     node: &Node,
     file_id: &str,
     parent_id: &str,
     enclosing_type: Option<&str>,
+    vis: Visibility,
     s: &mut Scanner,
 ) {
     let name = s.field_text(node, "name");
@@ -174,7 +222,7 @@ fn emit_function(
     }
     let fn_id = format!("{}::fn::{}", file_id, name);
     let line = node.start_position().row + 1;
-    s.add_artifact(fn_id.clone(), name, ArtifactKind::Function, line);
+    s.add_artifact_with_visibility(fn_id.clone(), name, ArtifactKind::Function, line, vis);
     s.contains(parent_id, &fn_id, line);
     if let Some(body) = node.child_by_field_name("body") {
         walk_for_calls(body, &fn_id, enclosing_type, s);
