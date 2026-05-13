@@ -84,7 +84,7 @@ fn find_hotspots(map: &DependencyMap) -> Vec<Hotspot> {
         .filter(|(_, d)| *d as f64 > threshold)
         .map(|(idx, degree)| Hotspot {
             index: idx,
-            label: map[idx].label.clone(),
+            label: map[idx].display_label(),
             degree,
             source_file: map[idx].source_file.clone(),
         })
@@ -103,8 +103,8 @@ fn find_couplings(map: &DependencyMap) -> Vec<Coupling> {
             let edge = e.weight();
             match (src.module_id, dst.module_id) {
                 (Some(c1), Some(c2)) if c1 != c2 => Some(Coupling {
-                    from_label: src.label.clone(),
-                    to_label: dst.label.clone(),
+                    from_label: src.display_label(),
+                    to_label: dst.display_label(),
                     kind: format!("{:?}", edge.kind),
                     from_module: c1,
                     to_module: c2,
@@ -133,7 +133,9 @@ fn generate_insights(
     for h in hotspots.iter().take(3) {
         insights.push(format!(
             "`{}` ({}) is a hotspot with {} connections — consider splitting it.",
-            h.label, h.source_file, h.degree
+            h.label,
+            h.source_file,
+            h.degree
         ));
     }
 

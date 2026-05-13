@@ -12,6 +12,7 @@ grafly-core    = { workspace = true }
 grafly-scan    = { workspace = true }
 grafly-cluster = { workspace = true }
 grafly-analyze = { workspace = true }
+grafly-query   = { workspace = true }
 grafly-report  = { workspace = true }
 grafly-export  = { workspace = true }
 

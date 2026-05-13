@@ -66,6 +66,31 @@ pub struct Artifact {
     pub module_id: Option<usize>,
 }
 
+impl Artifact {
+    /// Human-readable label suitable for paths, reports, HTML, and hotspot
+    /// listings. For methods this is `Type::method_name` (derived from the
+    /// artifact ID's `<...>::method::<name>` suffix), disambiguating common
+    /// method names like `fmt`, `new`, `default` across different parent types.
+    /// For everything else, this is just `label`.
+    ///
+    /// **Important:** `label` itself stays bare because `MapBuilder`'s name
+    /// index uses it for symbol resolution — a method called `fmt` must match
+    /// any unresolved `fmt` reference regardless of its parent type.
+    pub fn display_label(&self) -> String {
+        if self.kind == ArtifactKind::Method {
+            if let Some(method_pos) = self.id.rfind("::method::") {
+                let parent_id = &self.id[..method_pos];
+                if let Some(type_name) = parent_id.rsplit("::").next() {
+                    if !type_name.is_empty() {
+                        return format!("{}::{}", type_name, self.label);
+                    }
+                }
+            }
+        }
+        self.label.clone()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Dependency {
     pub kind: DependencyKind,
@@ -189,6 +214,13 @@ impl MapBuilder {
         self.unresolved.extend(scan.unresolved);
     }
 
+    /// Number of unresolved references queued for the resolution pass.
+    /// Useful for sizing a progress indicator before calling
+    /// [`build_with_progress`](Self::build_with_progress).
+    pub fn unresolved_len(&self) -> usize {
+        self.unresolved.len()
+    }
+
     /// Build the final `DependencyMap` and run the resolution pass.
     ///
     /// Resolution rules:
@@ -203,7 +235,19 @@ impl MapBuilder {
     ///   `References` / `Uses`): single match → `Inferred`. Multiple → pick
     ///   non-self-file match → `Ambiguous` (these are rarer and more useful
     ///   even when uncertain).
-    pub fn build_with_stats(mut self) -> (DependencyMap, ResolutionStats) {
+    pub fn build_with_stats(self) -> (DependencyMap, ResolutionStats) {
+        self.build_with_progress(|_, _| {})
+    }
+
+    /// Same as [`build_with_stats`](Self::build_with_stats) but invokes
+    /// `on_progress(done, total)` periodically (~every 1%) during the
+    /// resolution loop, so callers can render a progress indicator.
+    /// `total` is the number of unresolved references; `done` is how many
+    /// have been processed.
+    pub fn build_with_progress<F>(mut self, mut on_progress: F) -> (DependencyMap, ResolutionStats)
+    where
+        F: FnMut(usize, usize),
+    {
         let mut stats = ResolutionStats::default();
 
         // ── name_index: label → [NodeIndex] ────────────────────────────────
@@ -242,7 +286,14 @@ impl MapBuilder {
             }
         }
 
-        for u in self.unresolved {
+        let total_unresolved = self.unresolved.len();
+        let report_step = (total_unresolved / 100).max(1);
+        on_progress(0, total_unresolved);
+
+        for (i, u) in self.unresolved.into_iter().enumerate() {
+            if i > 0 && i % report_step == 0 {
+                on_progress(i, total_unresolved);
+            }
             stats.attempted += 1;
             let Some(&src_idx) = self.id_to_index.get(&u.source_id) else {
                 stats.unresolved += 1;
@@ -303,6 +354,7 @@ impl MapBuilder {
             }
         }
 
+        on_progress(total_unresolved, total_unresolved);
         (self.map, stats)
     }
 

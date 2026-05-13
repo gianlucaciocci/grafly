@@ -4,9 +4,36 @@ mod skill;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
+use indicatif::{ProgressBar, ProgressStyle};
 use install::{Platform, Scope};
 use install_mcp::McpClient;
 use std::path::PathBuf;
+use std::time::Duration;
+
+fn spinner(prefix: &'static str) -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::with_template("{prefix} {spinner} {elapsed} {msg}")
+            .unwrap()
+            .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ "),
+    );
+    pb.set_prefix(prefix);
+    pb.enable_steady_tick(Duration::from_millis(100));
+    pb
+}
+
+fn bar(prefix: &'static str, total: u64) -> ProgressBar {
+    let pb = ProgressBar::new(total);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "{prefix} [{bar:30.cyan/blue}] {percent:>3}% ({human_pos}/{human_len}) {msg}",
+        )
+        .unwrap()
+        .progress_chars("=>-"),
+    );
+    pb.set_prefix(prefix);
+    pb
+}
 
 #[derive(Parser)]
 #[command(
@@ -122,6 +149,26 @@ struct AnalyzeArgs {
     /// `.gitignore`d paths, `node_modules`, `target`, `.venv`, etc.
     #[arg(long, default_value_t = false)]
     no_ignore: bool,
+
+    /// Use leiden-rs's stock high-quality defaults (max_iter=100, epsilon=1e-10)
+    /// instead of grafly's fast defaults (max_iter=20, epsilon=1e-4). Adds
+    /// several minutes on large codebases for a sub-percent quality gain.
+    #[arg(long, default_value_t = false)]
+    leiden_thorough: bool,
+
+    /// Keep `Imports` edges in the dependency map. By default they're filtered
+    /// as architectural noise — file-level co-occurrence creates misleading
+    /// path shortcuts and bloats hotspot degrees without revealing structure.
+    #[arg(long, default_value_t = false)]
+    include_imports: bool,
+
+    /// Keep test and example files in the scan. By default `tests/`, `test/`,
+    /// `__tests__/`, `examples/`, `benches/` directories and per-language test
+    /// filename patterns (`test_*.py`, `*_test.go`, `*.test.ts`, `*Test.java`)
+    /// are excluded — they're not part of the runtime architecture and pollute
+    /// module/hotspot detection.
+    #[arg(long, default_value_t = false)]
+    include_tests: bool,
 }
 
 #[derive(Args)]
@@ -322,33 +369,45 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
     println!("  output : {}", cli.output.display());
 
     // ── 1. Scan ───────────────────────────────────────────────────────────────
-    print!("\n[1/4] scanning ...");
+    println!();
+    let pb = spinner("[1/4] scanning");
     let scan_opts = if cli.no_ignore {
         grafly_scan::ScanOptions::unrestricted()
     } else {
-        grafly_scan::ScanOptions::default()
+        grafly_scan::ScanOptions {
+            skip_tests_and_examples: !cli.include_tests,
+            ..grafly_scan::ScanOptions::default()
+        }
     };
     let scan = grafly_scan::scan_dir_with_options(&cli.path, &scan_opts)
         .with_context(|| format!("failed to scan {}", cli.path.display()))?;
+    pb.finish_and_clear();
     println!(
-        " {} artifacts, {} dependencies, {} unresolved refs",
+        "[1/4] scanning ... {} artifacts, {} dependencies, {} unresolved refs",
         scan.artifacts.len(),
         scan.dependencies.len(),
         scan.unresolved.len()
     );
 
     // ── 2. Build map ──────────────────────────────────────────────────────────
-    print!("[2/4] building dependency map ...");
+    let pb = spinner("[2/4] merging scan");
     let mut builder = grafly_core::MapBuilder::new();
     builder.add_scan(scan);
-    let (mut map, stats) = builder.build_with_stats();
+    let total_unresolved = builder.unresolved_len();
+    pb.finish_and_clear();
+
+    let pb = bar("[2/4] resolving refs", total_unresolved as u64);
+    let (mut map, stats) = builder.build_with_progress(|done, _total| {
+        pb.set_position(done as u64);
+    });
+    pb.finish_and_clear();
     println!(
-        " {} artifacts, {} dependencies ({} unique, {} ambiguous, {} unresolved)",
+        "[2/4] building dependency map ... {} artifacts, {} dependencies ({} unique, {} ambiguous, {} unresolved)",
         map.node_count(),
         map.edge_count(),
         stats.resolved_unique,
         stats.resolved_ambiguous,
-        stats.unresolved
+        stats.unresolved,
     );
 
     if map.node_count() == 0 {
@@ -357,23 +416,53 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
     }
 
     // ── 3. Detect modules ─────────────────────────────────────────────────────
-    print!(
-        "[3/4] detecting modules (leiden, resolution={}) ...",
-        cli.resolution
-    );
-    let modules = grafly_cluster::detect_modules(&mut map, cli.resolution, cli.seed)
-        .context("module detection failed")?;
+    let pb = spinner("[3/4] detecting modules");
+    let detection_config = if cli.leiden_thorough {
+        grafly_cluster::DetectionConfig::thorough()
+    } else {
+        grafly_cluster::DetectionConfig::default()
+    };
+    let mode = if cli.leiden_thorough { "thorough" } else { "fast" };
+    pb.set_message(format!(
+        "(leiden, resolution={}, mode={})",
+        cli.resolution, mode
+    ));
+    let modules =
+        grafly_cluster::detect_modules_with_config(&mut map, cli.resolution, cli.seed, &detection_config)
+            .context("module detection failed")?;
+    pb.finish_and_clear();
     println!(
-        " {} modules (quality = {:.4})",
+        "[3/4] detecting modules (leiden, resolution={}, mode={}) ... {} modules (quality = {:.4})",
+        cli.resolution,
+        mode,
         modules.count(),
         modules.quality
     );
 
+    // ── 3b. Drop Imports edges (post-cluster) ─────────────────────────────────
+    // Imports edges are essential signal for Leiden (they encode file-level
+    // co-occurrence — the densest connections in a typical codebase). But for
+    // downstream surfaces — hotspots, HTML, path queries — they're noise:
+    // they inflate degree counts and create misleading `A → shared_file → B`
+    // shortcuts. So we cluster *with* them, then drop them before output.
+    if !cli.include_imports {
+        let before = map.edge_count();
+        map.retain_edges(|frozen, e| {
+            frozen.edge_weight(e).map(|d| d.kind != grafly_core::DependencyKind::Imports)
+                .unwrap_or(false)
+        });
+        let dropped = before - map.edge_count();
+        if dropped > 0 {
+            println!("       dropped {} Imports edges (use --include-imports to keep)", dropped);
+        }
+    }
+
     // ── 4. Analyze ────────────────────────────────────────────────────────────
-    print!("[4/4] analyzing ...");
+    let pb = spinner("[4/4] analyzing");
     let analysis = grafly_analyze::analyze(&map);
+    pb.finish_and_clear();
     println!(
-        " {} hotspots, {} cross-module couplings",
+        "[4/4] analyzing ... {} hotspots, {} cross-module couplings",
         analysis.hotspots.len(),
         analysis.couplings.len()
     );

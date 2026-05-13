@@ -1,5 +1,6 @@
 use crate::common::{classify_call_target, last_identifier, walk_descendants, Scanner};
 use grafly_core::{ArtifactKind, ScanResult};
+use std::collections::HashMap;
 use std::path::Path;
 use tree_sitter::{Node, Parser};
 
@@ -24,6 +25,28 @@ pub fn scan(path: &Path, source: &str) -> ScanResult {
     s.add_file(file_label);
 
     let root = tree.root_node();
+
+    // First pass: build name→artifact-ID lookup for top-level user-defined types
+    // in this file. Lets `impl Foo` correctly anchor its methods to whichever
+    // kind `Foo` actually is (struct / enum / trait). Without this, `impl Enum`
+    // hardcoded a phantom `::struct::Enum` anchor and methods became orphans.
+    let mut local_types: HashMap<String, String> = HashMap::new();
+    {
+        let mut c = root.walk();
+        for child in root.children(&mut c) {
+            let prefix = match child.kind() {
+                "struct_item" => "struct",
+                "enum_item" => "enum",
+                "trait_item" => "trait",
+                _ => continue,
+            };
+            let name = s.field_text(&child, "name");
+            if !name.is_empty() {
+                local_types.insert(name.clone(), format!("{}::{}::{}", file_id, prefix, name));
+            }
+        }
+    }
+
     let mut cursor = root.walk();
 
     for child in root.children(&mut cursor) {
@@ -34,9 +57,17 @@ pub fn scan(path: &Path, source: &str) -> ScanResult {
             "enum_item" => emit_named_top(&child, &file_id, "enum", ArtifactKind::Enum, &mut s),
             "trait_item" => emit_named_top(&child, &file_id, "trait", ArtifactKind::Trait, &mut s),
 
-            "impl_item" => emit_impl(&child, &file_id, &mut s),
+            "impl_item" => emit_impl(&child, &file_id, &local_types, &mut s),
 
-            "mod_item" => emit_named_top(&child, &file_id, "mod", ArtifactKind::Namespace, &mut s),
+            "mod_item" => {
+                // Skip inline test modules (`#[cfg(test)] mod tests { ... }`). We
+                // detect them by name — covers the standard Rust convention without
+                // having to walk attribute siblings.
+                let name = s.field_text(&child, "name");
+                if !is_inline_test_mod(&name) {
+                    emit_named_top(&child, &file_id, "mod", ArtifactKind::Namespace, &mut s);
+                }
+            }
 
             "use_declaration" => {
                 let line = child.start_position().row + 1;
@@ -69,7 +100,12 @@ fn emit_named_top(
     s.contains(file_id, &id, line);
 }
 
-fn emit_impl(node: &Node, file_id: &str, s: &mut Scanner) {
+fn emit_impl(
+    node: &Node,
+    file_id: &str,
+    local_types: &HashMap<String, String>,
+    s: &mut Scanner,
+) {
     let type_name = s.field_text(node, "type");
     if type_name.is_empty() {
         return;
@@ -81,9 +117,13 @@ fn emit_impl(node: &Node, file_id: &str, s: &mut Scanner) {
         .child_by_field_name("trait")
         .map(|t| s.text(&t).to_string());
 
-    // Anchor methods to the matching struct/enum/trait artifact when one exists
-    // in this file; otherwise use a fresh `impl::Type` anchor.
-    let anchor_id = format!("{}::struct::{}", file_id, type_simple);
+    // Anchor methods to the real same-file struct/enum/trait artifact when one
+    // exists; otherwise fall back to a `::struct::` anchor (consistent with
+    // pre-fix behavior for types defined outside this file).
+    let anchor_id = local_types
+        .get(&type_simple)
+        .cloned()
+        .unwrap_or_else(|| format!("{}::struct::{}", file_id, type_simple));
 
     if let Some(tr) = trait_name.as_deref() {
         let trait_simple = last_identifier(tr);
@@ -188,6 +228,13 @@ fn extract_use_names(node: &Node, s: &Scanner) -> Vec<String> {
 
 fn node_text<'a>(node: &Node, source: &'a [u8]) -> &'a str {
     node.utf8_text(source).unwrap_or("")
+}
+
+/// `mod` names that almost always correspond to `#[cfg(test)]` inline test
+/// modules. Skipping these at scan time keeps test artifacts out of the
+/// dependency map without parsing attribute siblings.
+fn is_inline_test_mod(name: &str) -> bool {
+    matches!(name, "tests" | "test" | "__tests__" | "test_helpers")
 }
 
 /// Rust prelude/macro names that almost never refer to user code. These are

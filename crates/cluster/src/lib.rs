@@ -14,6 +14,52 @@ pub enum ModuleDetectionError {
     Leiden(String),
 }
 
+/// Tunables for the Leiden run. The defaults trade a sub-percent quality drop
+/// for a meaningful speedup vs leiden-rs's stock defaults.
+///
+/// Note on epsilon: it must stay **tight enough** that the first iteration's
+/// modularity delta doesn't fall below the threshold and trigger premature
+/// convergence on large graphs (the algorithm would exit with every node in
+/// its own community). `min_iterations >= 2` guards against this regardless.
+#[derive(Debug, Clone)]
+pub struct DetectionConfig {
+    /// Hard cap on Leiden iterations. Default 30 (stock leiden-rs: 100).
+    pub max_iterations: usize,
+    /// Convergence threshold. Default 1e-8 (stock leiden-rs: 1e-10).
+    /// Looser values risk premature exit on large graphs — see struct docs.
+    pub epsilon: f64,
+    /// Minimum iterations before convergence check. Default 3 (stock: 1).
+    /// Floor that forces Leiden to do real work before believing "converged".
+    pub min_iterations: usize,
+    /// When true, skip Leiden's refinement phase (Louvain-equivalent behavior).
+    /// Faster, slight quality drop, loses Leiden's "well-connected modules"
+    /// guarantee. Default false.
+    pub skip_refinement: bool,
+}
+
+impl Default for DetectionConfig {
+    fn default() -> Self {
+        Self {
+            max_iterations: 30,
+            epsilon: 1e-8,
+            min_iterations: 3,
+            skip_refinement: false,
+        }
+    }
+}
+
+impl DetectionConfig {
+    /// Restores leiden-rs's stock defaults — slowest, highest quality.
+    pub fn thorough() -> Self {
+        Self {
+            max_iterations: 100,
+            epsilon: 1e-10,
+            min_iterations: 1,
+            skip_refinement: false,
+        }
+    }
+}
+
 /// The result of running module detection on a dependency map.
 pub struct Modules {
     /// `members[i]` is the list of artifact NodeIndexes in module i.
@@ -37,11 +83,24 @@ impl Modules {
     }
 }
 
-/// Detect modules in a dependency map using the Leiden algorithm.
+/// Detect modules in a dependency map using the Leiden algorithm with fast defaults.
+/// See [`DetectionConfig`] for the tunables; [`detect_modules_with_config`] takes
+/// an explicit config.
 pub fn detect_modules(
     map: &mut DependencyMap,
     resolution: f64,
     seed: Option<u64>,
+) -> Result<Modules, ModuleDetectionError> {
+    detect_modules_with_config(map, resolution, seed, &DetectionConfig::default())
+}
+
+/// Detect modules with an explicit [`DetectionConfig`]. Use this to override the
+/// fast defaults — for example, [`DetectionConfig::thorough`] for maximum quality.
+pub fn detect_modules_with_config(
+    map: &mut DependencyMap,
+    resolution: f64,
+    seed: Option<u64>,
+    config: &DetectionConfig,
 ) -> Result<Modules, ModuleDetectionError> {
     if map.node_count() == 0 {
         return Ok(Modules {
@@ -51,9 +110,8 @@ pub fn detect_modules(
         });
     }
 
-    // ── 1. Project to undirected unit-weight shadow graph ────────────────────
+    // ── 1. Project to an undirected unit-weight shadow graph ─────────────────
     let mut shadow: Graph<(), f64, Undirected> = Graph::new_undirected();
-
     let orig_to_shadow: HashMap<NodeIndex, NodeIndex> = map
         .node_indices()
         .map(|n| (n, shadow.add_node(())))
@@ -73,7 +131,11 @@ pub fn detect_modules(
     // ── 3. Build config and run ──────────────────────────────────────────────
     let mut builder = LeidenConfig::builder()
         .resolution(resolution)
-        .quality(QualityType::Modularity);
+        .quality(QualityType::Modularity)
+        .max_iterations(config.max_iterations)
+        .epsilon(config.epsilon)
+        .min_iterations(config.min_iterations)
+        .skip_refinement(config.skip_refinement);
 
     if let Some(s) = seed {
         builder = builder.seed(s);
@@ -113,25 +175,90 @@ pub fn detect_modules(
     })
 }
 
-/// Pick a representative name for a module: the label of its highest-priority
-/// artifact. Priority favours Classes/Structs/Interfaces/Traits over Functions/
-/// Methods over everything else; degree is the tiebreaker.
+/// Common method/dunder labels that win the highest-degree tiebreak by sheer
+/// prevalence (`new`, `default`, `__init__`, `fmt`, ...) but say nothing about
+/// what the module actually contains. Excluded from name candidates.
+const NOISY_LABELS: &[&str] = &[
+    // Python dunder methods
+    "__init__", "__str__", "__repr__", "__eq__", "__ne__", "__hash__",
+    "__lt__", "__gt__", "__le__", "__ge__", "__cmp__", "__richcmp__",
+    "__getitem__", "__setitem__", "__delitem__", "__contains__",
+    "__len__", "__iter__", "__next__", "__reversed__",
+    "__enter__", "__exit__", "__call__",
+    "__new__", "__del__", "__copy__", "__deepcopy__",
+    "__bool__", "__nonzero__", "__sizeof__",
+    "__add__", "__sub__", "__mul__", "__truediv__", "__floordiv__",
+    "__mod__", "__pow__", "__neg__", "__pos__", "__abs__",
+    "__and__", "__or__", "__xor__", "__lshift__", "__rshift__",
+    "__getattr__", "__setattr__", "__delattr__",
+    "__getstate__", "__setstate__", "__reduce__",
+    "__format__", "__dir__",
+    "setUp", "tearDown", "setUpClass", "tearDownClass",
+    // Rust pervasive trait methods
+    "new", "default", "clone", "drop", "fmt",
+    "eq", "ne", "hash", "partial_cmp", "cmp",
+    "deref", "deref_mut", "borrow", "borrow_mut",
+    "as_ref", "as_mut", "as_any", "as_str", "as_bytes", "as_slice",
+    "from", "from_str", "from_iter", "into", "try_from", "try_into",
+    "next", "iter", "into_iter", "iter_mut",
+    "len", "is_empty", "size_hint",
+    // Generic getters/setters that appear everywhere
+    "name", "id", "kind", "type", "type_name", "value", "ts_init",
+    // PyO3 wrapper convention
+    "py_new", "py_to_dict",
+];
+
+fn is_noisy_label(label: &str) -> bool {
+    if NOISY_LABELS.contains(&label) {
+        return true;
+    }
+    // PyO3 bindings: `py_*` (e.g. `py_is_cash_account`, `py_from_order_side`)
+    // are pyclass shims, not architectural identities.
+    label.starts_with("py_")
+}
+
+/// Pick a representative name for a module. Strategy:
+/// 1. Among non-noisy artifacts, prefer Classes/Structs/Traits/Interfaces over
+///    Functions/Methods, breaking ties by total degree.
+/// 2. If every candidate is filtered as noisy, fall back to the file stem of
+///    the source file that holds the most members of this module.
 fn pick_module_name(map: &DependencyMap, members: &[NodeIndex]) -> String {
     if members.is_empty() {
         return String::from("empty");
     }
 
-    members
+    let best = members
         .iter()
-        .map(|&n| {
+        .filter_map(|&n| {
             let a = &map[n];
+            if is_noisy_label(&a.label) {
+                return None;
+            }
             let degree = map.edges_directed(n, petgraph::Direction::Outgoing).count()
                 + map.edges_directed(n, petgraph::Direction::Incoming).count();
-            (n, kind_priority(&a.kind), degree)
+            Some((n, kind_priority(&a.kind), degree))
         })
         .max_by_key(|&(_, prio, deg)| (prio, deg))
-        .map(|(n, _, _)| map[n].label.clone())
-        .unwrap_or_else(|| String::from("unnamed"))
+        .map(|(n, _, _)| map[n].display_label());
+
+    if let Some(name) = best {
+        return name;
+    }
+
+    // Fallback: dominant source-file stem.
+    let mut file_counts: HashMap<&str, usize> = HashMap::new();
+    for &n in members {
+        *file_counts.entry(map[n].source_file.as_str()).or_default() += 1;
+    }
+    if let Some((file, _)) = file_counts.into_iter().max_by_key(|&(_, c)| c) {
+        return std::path::Path::new(file)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(String::from)
+            .unwrap_or_else(|| file.to_string());
+    }
+
+    String::from("unnamed")
 }
 
 fn kind_priority(kind: &ArtifactKind) -> u8 {

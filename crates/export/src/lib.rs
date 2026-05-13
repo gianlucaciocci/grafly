@@ -66,7 +66,7 @@ pub fn to_json(map: &DependencyMap) -> Value {
             let a = &map[n];
             json!({
                 "id":          a.id,
-                "label":       a.label,
+                "label":       a.display_label(),
                 "kind":        format!("{:?}", a.kind),
                 "source_file": a.source_file,
                 "source_line": a.source_line,
@@ -167,7 +167,7 @@ fn filtered_artifact_payload(
             let module_label = a.module_id.and_then(|id| module_names.get(id)).cloned();
             json!({
                 "id":           a.id,
-                "label":        a.label,
+                "label":        a.display_label(),
                 "kind":         format!("{:?}", a.kind),
                 "source_file":  a.source_file,
                 "source_line":  a.source_line,

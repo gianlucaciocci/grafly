@@ -31,6 +31,7 @@ Grafly uses the architect's vocabulary — what software architects actually cal
 - **Fast** — parallel file scanning via Rayon; single-pass map construction
 - **Module detection** — Leiden algorithm (better than Louvain, guarantees well-connected modules)
 - **Architecture insights** — hotspots, cross-module couplings, suggested insights
+- **Interactive path queries** — weighted shortest paths that prefer runtime call chains (`Calls`=1) over file-level import shortcuts (`Imports`=5), and BFS subgraphs with a supernode cap to keep neighborhoods focused
 - **Interactive HTML** — vis-network map with module colours, click-to-inspect
 - **MCP server** — expose grafly as a tool to Claude Code, Cursor, and any MCP-compatible LLM
 
@@ -56,7 +57,7 @@ cargo install grafly-cli   # CLI
 cargo install grafly-mcp   # MCP server
 ```
 
-Or build from source (requires Rust ≥ 1.85 and the leiden-rs local clone — see [Contributing](#contributing)):
+Or build from source (requires Rust ≥ 1.85):
 
 ```bash
 git clone https://github.com/gianlucaciocci/grafly
@@ -138,9 +139,10 @@ grafly mcp list                          # show where it's registered
 grafly mcp uninstall --all               # remove cleanly
 ```
 
-The MCP server exposes seven tools: `analyze`, `get_artifacts`, `get_modules`,
-`get_hotspots`, `get_couplings`, `get_insights`, `export`. The binary path is
-auto-detected (looks for `grafly-mcp` next to `grafly`); override with `--bin`.
+The MCP server exposes ten tools: `analyze`, `get_artifacts`, `get_modules`,
+`get_hotspots`, `get_couplings`, `get_insights`, `export`, `find_path`,
+`get_neighbors`, `get_dependents`. The binary path is auto-detected (looks for
+`grafly-mcp` next to `grafly`); override with `--bin`.
 
 Other entries in the same config file are preserved — grafly only mutates its
 own `grafly` server entry.
@@ -193,6 +195,9 @@ Add to your `~/.claude/settings.json` (or project `.claude/settings.json`):
 | `get_couplings` | Cross-module couplings — unexpected dependencies between modules |
 | `get_insights` | Suggested insights for architectural review |
 | `export` | Write JSON / HTML / Markdown files to a directory |
+| `find_path` | Weighted shortest path between two artifacts — prefers `Calls` chains over `Imports` shortcuts |
+| `get_neighbors` | Depth-limited BFS subgraph around an artifact (default: runtime edges only, supernode cap at degree 200) |
+| `get_dependents` | The artifacts that depend on a given artifact (incoming-direction subgraph) |
 
 ### Example tool call
 
@@ -225,6 +230,26 @@ Response:
 }
 ```
 
+### Path queries
+
+```json
+{
+  "tool": "find_path",
+  "arguments": {
+    "path": "/home/user/projects/myapp",
+    "from": "DataActorCore",
+    "to": "ExecutionEngine"
+  }
+}
+```
+
+By default the path is weighted so `Calls` edges (weight 1) are strongly preferred
+over `Imports` edges (weight 5) and `References`/`Uses` (weight 10). In a message-bus
+architecture this routes the answer through the actual mediation chain instead of
+taking a file-level import shortcut. Set `weighted: false` for raw shortest path by
+hop count. Each hop in the response carries its `DependencyKind`, `Confidence`,
+and `source_line` so callers can distinguish hard-evidence chains from inferred ones.
+
 ---
 
 ## Rust Library Usage
@@ -253,7 +278,14 @@ grafly::cluster::detect_modules(&mut map, 1.0, None)?;
 // 4. Analyze
 let analysis = grafly::analyze::analyze(&map);
 
-// 5. Export
+// 5. Query — weighted shortest path between two artifacts
+let from = grafly::query::resolve(&map, "DataActorCore")?;
+let to   = grafly::query::resolve(&map, "ExecutionEngine")?;
+if let Some(path) = grafly::query::find_path(&map, from, to, &Default::default()) {
+    println!("{} hops, weight {}", path.total_hops, path.total_weight);
+}
+
+// 6. Export
 grafly::export::write_html(&map, Path::new("map.html"))?;
 ```
 
@@ -268,6 +300,7 @@ grafly/
 │   ├── scan/      tree-sitter parsers (Python, Rust, JS, TS, Go, Java) + Rayon walker
 │   ├── cluster/   Leiden module detection via leiden-rs (detect_modules)
 │   ├── analyze/   Hotspots · couplings · insights
+│   ├── query/     find_path · neighbors · ancestors · descendants
 │   ├── report/    Markdown report generator
 │   ├── export/    JSON + interactive HTML (vis-network)
 │   ├── cli/       grafly binary (clap)
@@ -282,6 +315,7 @@ scan_dir(path)
   → MapBuilder           → DependencyMap (petgraph DiGraph)
   → detect_modules()     → module_id assigned to each artifact
   → analyze()            → Analysis { hotspots, couplings, insights }
+  → query()              → Path / Subgraph — weighted shortest path, BFS
   → export / report
 ```
 
