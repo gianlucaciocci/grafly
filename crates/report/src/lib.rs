@@ -90,7 +90,14 @@ pub fn generate_markdown(
     }
 
     // ── Package breakdown ─────────────────────────────────────────────────────
-    let mut packages: Vec<(&str, &str, usize)> = map
+    struct PackageRow<'a> {
+        name: &'a str,
+        manifest: &'a str,
+        description: Option<&'a str>,
+        is_entry_point: bool,
+        file_count: usize,
+    }
+    let mut packages: Vec<PackageRow> = map
         .node_indices()
         .filter_map(|n| {
             let a = &map[n];
@@ -101,20 +108,32 @@ pub fn generate_markdown(
                 .edges_directed(n, petgraph::Direction::Outgoing)
                 .filter(|e| e.weight().kind == DependencyKind::Contains)
                 .count();
-            Some((a.label.as_str(), a.source_file.as_str(), file_count))
+            Some(PackageRow {
+                name: a.label.as_str(),
+                manifest: a.source_file.as_str(),
+                description: a.description.as_deref(),
+                is_entry_point: a.is_entry_point,
+                file_count,
+            })
         })
         .collect();
     if !packages.is_empty() {
-        packages.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(b.0)));
+        packages.sort_by(|a, b| b.file_count.cmp(&a.file_count).then_with(|| a.name.cmp(b.name)));
         md.push_str("## Packages\n\n");
         md.push_str(
-            "Buildable units declared by project manifests (`Cargo.toml`). Each entry \
-             shows the package name, the source files it owns, and the manifest path.\n\n",
+            "Buildable units declared by project manifests (`Cargo.toml`, `pyproject.toml`, \
+             `package.json`, `go.mod`). Entries flagged `[bin]` declare an executable \
+             entry point.\n\n",
         );
-        for (name, manifest, count) in &packages {
+        for p in &packages {
+            let marker = if p.is_entry_point { " `[bin]`" } else { "" };
+            let desc = match p.description {
+                Some(d) if !d.is_empty() => format!(" — {}", d),
+                _ => String::new(),
+            };
             md.push_str(&format!(
-                "- **`{}`** — {} source files (`{}`)\n",
-                name, count, manifest
+                "- **`{}`**{} — {} source files (`{}`){}\n",
+                p.name, marker, p.file_count, p.manifest, desc
             ));
         }
         md.push('\n');

@@ -65,12 +65,14 @@ pub fn to_json(map: &DependencyMap) -> Value {
         .map(|n| {
             let a = &map[n];
             json!({
-                "id":          a.id,
-                "label":       a.display_label(),
-                "kind":        format!("{:?}", a.kind),
-                "source_file": a.source_file,
-                "source_line": a.source_line,
-                "module_id":   a.module_id,
+                "id":             a.id,
+                "label":          a.display_label(),
+                "kind":           format!("{:?}", a.kind),
+                "source_file":    a.source_file,
+                "source_line":    a.source_line,
+                "module_id":      a.module_id,
+                "description":    a.description,
+                "is_entry_point": a.is_entry_point,
             })
         })
         .collect();
@@ -166,13 +168,15 @@ fn filtered_artifact_payload(
             let a = &map[n];
             let module_label = a.module_id.and_then(|id| module_names.get(id)).cloned();
             json!({
-                "id":           a.id,
-                "label":        a.display_label(),
-                "kind":         format!("{:?}", a.kind),
-                "source_file":  a.source_file,
-                "source_line":  a.source_line,
-                "module_id":    a.module_id,
-                "module_name":  module_label,
+                "id":             a.id,
+                "label":          a.display_label(),
+                "kind":           format!("{:?}", a.kind),
+                "source_file":    a.source_file,
+                "source_line":    a.source_line,
+                "module_id":      a.module_id,
+                "module_name":    module_label,
+                "description":    a.description,
+                "is_entry_point": a.is_entry_point,
             })
         })
         .collect();

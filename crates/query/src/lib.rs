@@ -426,6 +426,8 @@ mod tests {
             kind: ArtifactKind::Function,
             source_file: format!("{}.rs", id),
             source_line: 1,
+            description: None,
+            is_entry_point: false,
         }
     }
 
@@ -461,6 +463,7 @@ mod tests {
                 raw_dep("A", "C", DependencyKind::Imports),
             ],
             unresolved: vec![],
+            main_package_dirs: vec![],
         };
         let map = build_map(scan);
         let a = resolve(&map, "A").unwrap();
@@ -487,6 +490,7 @@ mod tests {
                 raw_dep("A", "C", DependencyKind::Imports),
             ],
             unresolved: vec![],
+            main_package_dirs: vec![],
         };
         let map = build_map(scan);
         let a = resolve(&map, "A").unwrap();
@@ -512,6 +516,7 @@ mod tests {
                 raw_dep("A", "C", DependencyKind::Imports),
             ],
             unresolved: vec![],
+            main_package_dirs: vec![],
         };
         let map = build_map(scan);
         let a = resolve(&map, "A").unwrap();
@@ -539,7 +544,12 @@ mod tests {
             artifacts.push(raw_artifact(&id, &id));
             deps.push(raw_dep("Hub", &id, DependencyKind::Calls));
         }
-        let map = build_map(ScanResult { artifacts, dependencies: deps, unresolved: vec![] });
+        let map = build_map(ScanResult {
+            artifacts,
+            dependencies: deps,
+            unresolved: vec![],
+            main_package_dirs: vec![],
+        });
         let a = resolve(&map, "A").unwrap();
 
         let opts = SubgraphOptions {
@@ -576,6 +586,7 @@ mod tests {
                 raw_dep("B", "C", DependencyKind::Calls),
             ],
             unresolved: vec![],
+            main_package_dirs: vec![],
         };
         let map = build_map(scan);
         let c = resolve(&map, "C").unwrap();
@@ -596,6 +607,7 @@ mod tests {
             ],
             dependencies: vec![],
             unresolved: vec![],
+            main_package_dirs: vec![],
         };
         let map = build_map(scan);
         assert!(matches!(resolve(&map, "new"), Err(QueryError::Ambiguous { .. })));

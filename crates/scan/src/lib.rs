@@ -222,7 +222,12 @@ pub fn scan_dir_with_options(
 
     let manifest_paths: Vec<&PathBuf> = entries
         .iter()
-        .filter(|p| p.file_name().and_then(|n| n.to_str()) == Some("Cargo.toml"))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| manifest::KNOWN_MANIFEST_FILENAMES.contains(&n))
+                .unwrap_or(false)
+        })
         .collect();
 
     let files: Vec<PathBuf> = entries
@@ -245,10 +250,29 @@ pub fn scan_dir_with_options(
     }
 
     // Manifest discovery → Package artifacts + Contains edges to owned files.
-    let manifests: Vec<manifest::Manifest> = manifest_paths
+    let mut manifests: Vec<manifest::Manifest> = manifest_paths
         .iter()
-        .filter_map(|p| manifest::parse_cargo_toml(p))
+        .filter_map(|p| manifest::parse_any(p))
         .collect();
+
+    // For go.mod manifests, flip is_binary if any owned .go file declared
+    // `package main` during the scan. This is the post-scan step described in
+    // the Go entry-point detection design — the scanner doesn't know about
+    // manifests, manifests don't see source content.
+    for m in &mut manifests {
+        if !m.manifest_path.ends_with("go.mod") {
+            continue;
+        }
+        if combined.main_package_dirs.iter().any(|d| {
+            // d is a directory; m.root_dir ends with '/'. Treat the trailing
+            // '/' as inclusive so `./` matches `.` and `./cmd/foo/` matches
+            // `./cmd/foo`.
+            let root = m.root_dir.trim_end_matches('/');
+            d == root || d.starts_with(&m.root_dir)
+        }) {
+            m.is_binary = true;
+        }
+    }
 
     for m in &manifests {
         combined.artifacts.push(RawArtifact {
@@ -257,6 +281,8 @@ pub fn scan_dir_with_options(
             kind: ArtifactKind::Package,
             source_file: m.manifest_path.clone(),
             source_line: 0,
+            description: m.description.clone(),
+            is_entry_point: m.is_binary,
         });
     }
 

@@ -67,6 +67,23 @@ pub struct Artifact {
     pub source_file: String,
     pub source_line: usize,
     pub module_id: Option<usize>,
+    /// Human-readable description from the artifact's source. Populated for
+    /// `Package` artifacts from manifest fields (`Cargo.toml` `description`,
+    /// `pyproject.toml` `[project].description`, `package.json` `description`).
+    /// `None` for all other artifact kinds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// True when this artifact represents a buildable binary / executable
+    /// entry point. Set for `Package` artifacts whose manifest declares a
+    /// binary target (`[[bin]]`, `[project.scripts]`, `bin` field, `package main`).
+    /// Always `false` for other artifact kinds.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_entry_point: bool,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Artifact {
@@ -115,6 +132,10 @@ pub struct RawArtifact {
     pub kind: ArtifactKind,
     pub source_file: String,
     pub source_line: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_entry_point: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +170,10 @@ pub struct ScanResult {
     pub artifacts: Vec<RawArtifact>,
     pub dependencies: Vec<RawDependency>,
     pub unresolved: Vec<UnresolvedReference>,
+    /// Directory paths (forward-slash normalised) of Go files that declare
+    /// `package main`. Used by manifest discovery to flag the owning `go.mod`
+    /// as a binary package. Empty for all non-Go scans.
+    pub main_package_dirs: Vec<String>,
 }
 
 impl ScanResult {
@@ -156,6 +181,7 @@ impl ScanResult {
         self.artifacts.extend(other.artifacts);
         self.dependencies.extend(other.dependencies);
         self.unresolved.extend(other.unresolved);
+        self.main_package_dirs.extend(other.main_package_dirs);
     }
 }
 
@@ -193,6 +219,8 @@ impl MapBuilder {
                 source_file: raw.source_file,
                 source_line: raw.source_line,
                 module_id: None,
+                description: raw.description,
+                is_entry_point: raw.is_entry_point,
             });
             self.id_to_index.insert(raw.id, idx);
         }
