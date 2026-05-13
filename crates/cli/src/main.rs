@@ -128,8 +128,8 @@ struct AnalyzeArgs {
     #[arg(short, long)]
     seed: Option<u64>,
 
-    /// Comma-separated output formats: json, html, html-modules, md
-    #[arg(short, long, default_value = "json,html,html-modules,md")]
+    /// Comma-separated output formats: json, html, html-modules, html-packages, md
+    #[arg(short, long, default_value = "json,html,html-modules,html-packages,md")]
     formats: String,
 
     /// Max artifacts in the artifact-level HTML (0 = unlimited).
@@ -514,6 +514,13 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
         },
         module_names: modules.names.clone(),
     };
+    let package_html_opts = grafly_export::PackageHtmlOptions {
+        max_packages: None, // packages are typically O(10-50), no cap needed
+        intra_module_counts: intra_package
+            .as_ref()
+            .map(|m| m.iter().map(|(idx, mods)| (*idx, mods.count())).collect())
+            .unwrap_or_default(),
+    };
 
     println!();
     let mut report_path: Option<PathBuf> = None;
@@ -551,6 +558,11 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
                     String::new()
                 };
                 println!("  wrote {}{}", p.display(), note);
+            }
+            "html-packages" => {
+                let p = cli.output.join("grafly_packages.html");
+                grafly_export::write_html_packages(&map, &package_html_opts, &p)?;
+                println!("  wrote {}", p.display());
             }
             "md" => {
                 let p = cli.output.join("grafly_report.md");

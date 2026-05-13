@@ -89,6 +89,26 @@ grafly analyze . --seed 42
 grafly analyze . --formats json,html
 ```
 
+### `grafly analyze` flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `<PATH>` (positional) | `.` | Directory to scan |
+| `-o`, `--output <DIR>` | `./grafly-out` | Output directory |
+| `-r`, `--resolution <FLOAT>` | `1.0` | Leiden resolution — higher → more, smaller modules |
+| `-s`, `--seed <INT>` | — | Random seed for deterministic module detection |
+| `-f`, `--formats <CSV>` | `json,html,html-modules,html-packages,md` | Comma-separated output formats: `json`, `html`, `html-modules`, `html-packages`, `md` |
+| `--max-html-nodes <N>` | `800` | Cap on artifacts in the artifact-level HTML (`0` = unlimited) |
+| `--max-html-modules <N>` | `100` | Cap on modules in the module-level HTML (`0` = unlimited) |
+| `--html-include-ambiguous` | `false` | Show `Ambiguous`-confidence edges in the artifact HTML (always kept in JSON) |
+| `--no-ignore` | `false` | Disable all path filtering — scan every file, including hidden dirs, `.gitignore`d paths, `node_modules`, `target`, `.venv`, tests, examples |
+| `--include-tests` | `false` | Keep test/example files (`tests/`, `__tests__/`, `examples/`, `*_test.go`, `*.test.ts`, `*Test.java`, etc.). Excluded by default — they're not runtime architecture |
+| `--include-imports` | `false` | Keep `Imports` edges in the output. Used for clustering either way; dropped after clustering by default because they create misleading `A → shared_file → B` path shortcuts and inflate hotspot degrees |
+| `--no-intra-package-modules` | `false` | Skip the intra-package Leiden pass. By default grafly clusters within each `Package` separately (in addition to the global cross-package modules), surfacing fine-grained subsystems inside each crate/package |
+| `--leiden-thorough` | `false` | Use leiden-rs's stock high-quality defaults (`max_iter=100`, `epsilon=1e-10`) instead of grafly's fast defaults (`max_iter=30`, `epsilon=1e-8`, `min_iter=3`). Adds time on large codebases for a sub-percent quality gain |
+
+Run `grafly analyze --help` for the same list straight from the binary.
+
 Output files (all in `./grafly-out/` by default):
 
 | File | Description |
@@ -96,7 +116,8 @@ Output files (all in `./grafly-out/` by default):
 | `README.md` | Index of all output files, written for both humans and LLM agents |
 | `grafly_report.md` | Markdown analysis: packages, modules, hotspots, cross-module couplings, suggested questions — LLM-discoverable |
 | `grafly_knowledge.json` | Full directed dependency map with `source_file:line` on every edge |
-| `grafly_modules.html` | Interactive module-level overview (modules as nodes, edges grouped by relationship kind) |
+| `grafly_modules.html` | Interactive module-level overview (Leiden modules as nodes, edges grouped by relationship kind) |
+| `grafly_packages.html` | Interactive package-level overview (Cargo/pyproject/package.json/go.mod packages as nodes, cross-package edges; binaries coloured distinctly from libraries) |
 | `grafly_artifacts.html` | Interactive artifact-level graph (top-N by degree, Ambiguous edges suppressed for clarity) |
 
 ## Make Grafly Discoverable to LLM Agents
