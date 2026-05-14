@@ -7,10 +7,15 @@
 use grafly_core::{Confidence, DependencyKind, DependencyMap, MapBuilder};
 use grafly_query::{PathOptions, SubgraphOptions, Traversal};
 use rmcp::handler::server::wrapper::Parameters;
+use rmcp::handler::server::ServerHandler;
+use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
+use rmcp::tool_handler;
 use rmcp::{tool, tool_router, ServiceExt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+const SUPPORTED_LANGUAGES: &[&str] = &["Python", "Rust", "JavaScript", "TypeScript", "Go", "Java"];
 
 // ── Parameter types ───────────────────────────────────────────────────────────
 
@@ -177,7 +182,7 @@ fn json_err(msg: impl std::fmt::Display) -> String {
 
 struct GraflyServer;
 
-#[tool_router(server_handler)]
+#[tool_router]
 impl GraflyServer {
     /// Run the full grafly pipeline on a directory.
     /// Returns artifact/dependency/module counts, quality score, hotspots,
@@ -618,6 +623,18 @@ impl GraflyServer {
     }
 }
 
+#[tool_handler]
+impl ServerHandler for GraflyServer {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_server_info(
+            Implementation::new("grafly-mcp", env!("CARGO_PKG_VERSION")).with_description(format!(
+                "Supported languages: {}",
+                SUPPORTED_LANGUAGES.join(", ")
+            )),
+        )
+    }
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -625,4 +642,21 @@ async fn main() -> anyhow::Result<()> {
     let service = GraflyServer.serve(rmcp::transport::stdio()).await?;
     service.waiting().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_info_includes_version_and_supported_languages() {
+        let info = GraflyServer.get_info();
+
+        assert_eq!(info.server_info.name, "grafly-mcp");
+        assert_eq!(info.server_info.version, env!("CARGO_PKG_VERSION"));
+        let description = info.server_info.description.unwrap();
+        for language in SUPPORTED_LANGUAGES {
+            assert!(description.contains(language));
+        }
+    }
 }
