@@ -139,6 +139,22 @@ struct AnalyzeArgs {
     #[arg(long, default_value_t = false)]
     leiden_thorough: bool,
 
+    /// Override the Leiden iteration cap.
+    #[arg(long = "leiden-max-iter", value_parser = parse_positive_usize)]
+    leiden_max_iter: Option<usize>,
+
+    /// Override the Leiden convergence threshold.
+    #[arg(long = "leiden-epsilon", value_parser = parse_positive_f64)]
+    leiden_epsilon: Option<f64>,
+
+    /// Override the minimum Leiden iterations before convergence checks.
+    #[arg(long = "leiden-min-iter", value_parser = parse_positive_usize)]
+    leiden_min_iter: Option<usize>,
+
+    /// Skip the Leiden refinement phase.
+    #[arg(long, default_value_t = false)]
+    leiden_skip_refinement: bool,
+
     /// Keep `Imports` edges in the dependency map. By default they're filtered
     /// as architectural noise — file-level co-occurrence creates misleading
     /// path shortcuts and bloats hotspot degrees without revealing structure.
@@ -165,6 +181,37 @@ struct AnalyzeArgs {
     /// surface area. They're always kept in `grafly_knowledge.json` regardless.
     #[arg(long, default_value_t = false)]
     include_private: bool,
+}
+
+impl AnalyzeArgs {
+    fn has_custom_leiden_tuning(&self) -> bool {
+        self.leiden_max_iter.is_some()
+            || self.leiden_epsilon.is_some()
+            || self.leiden_min_iter.is_some()
+            || self.leiden_skip_refinement
+    }
+}
+
+fn parse_positive_usize(value: &str) -> std::result::Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|e| format!("expected a positive integer: {e}"))?;
+    if parsed == 0 {
+        Err("value must be greater than 0".to_string())
+    } else {
+        Ok(parsed)
+    }
+}
+
+fn parse_positive_f64(value: &str) -> std::result::Result<f64, String> {
+    let parsed = value
+        .parse::<f64>()
+        .map_err(|e| format!("expected a positive float: {e}"))?;
+    if parsed.is_finite() && parsed > 0.0 {
+        Ok(parsed)
+    } else {
+        Err("value must be a finite number greater than 0".to_string())
+    }
 }
 
 #[derive(Args)]
@@ -399,16 +446,8 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
 
     // ── 3. Detect modules ─────────────────────────────────────────────────────
     let pb = spinner("[3/4] detecting modules");
-    let detection_config = if cli.leiden_thorough {
-        grafly_cluster::DetectionConfig::thorough()
-    } else {
-        grafly_cluster::DetectionConfig::default()
-    };
-    let mode = if cli.leiden_thorough {
-        "thorough"
-    } else {
-        "fast"
-    };
+    let detection_config = detection_config_from_args(&cli);
+    let mode = detection_mode(&cli);
     pb.set_message(format!(
         "(leiden, resolution={}, mode={})",
         cli.resolution, mode
@@ -602,4 +641,97 @@ fn run_analyze(cli: AnalyzeArgs) -> Result<()> {
         println!("======================================================");
     }
     Ok(())
+}
+
+fn detection_config_from_args(cli: &AnalyzeArgs) -> grafly_cluster::DetectionConfig {
+    let mut config = if cli.leiden_thorough {
+        grafly_cluster::DetectionConfig::thorough()
+    } else {
+        grafly_cluster::DetectionConfig::default()
+    };
+
+    if let Some(max_iterations) = cli.leiden_max_iter {
+        config.max_iterations = max_iterations;
+    }
+    if let Some(epsilon) = cli.leiden_epsilon {
+        config.epsilon = epsilon;
+    }
+    if let Some(min_iterations) = cli.leiden_min_iter {
+        config.min_iterations = min_iterations;
+    }
+    if cli.leiden_skip_refinement {
+        config.skip_refinement = true;
+    }
+
+    config
+}
+
+fn detection_mode(cli: &AnalyzeArgs) -> &'static str {
+    if cli.has_custom_leiden_tuning() {
+        "custom"
+    } else if cli.leiden_thorough {
+        "thorough"
+    } else {
+        "fast"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_analyze_args(args: &[&str]) -> AnalyzeArgs {
+        match Cli::parse_from(args).command {
+            Command::Analyze(args) => args,
+            _ => panic!("expected analyze command"),
+        }
+    }
+
+    #[test]
+    fn custom_leiden_flags_override_fast_defaults() {
+        let args = parse_analyze_args(&[
+            "grafly",
+            "analyze",
+            ".",
+            "--leiden-max-iter",
+            "40",
+            "--leiden-epsilon",
+            "0.001",
+            "--leiden-min-iter",
+            "4",
+            "--leiden-skip-refinement",
+        ]);
+
+        let config = detection_config_from_args(&args);
+        assert_eq!(config.max_iterations, 40);
+        assert_eq!(config.epsilon, 0.001);
+        assert_eq!(config.min_iterations, 4);
+        assert!(config.skip_refinement);
+        assert_eq!(detection_mode(&args), "custom");
+    }
+
+    #[test]
+    fn custom_leiden_flags_override_thorough_preset() {
+        let args = parse_analyze_args(&[
+            "grafly",
+            "analyze",
+            ".",
+            "--leiden-thorough",
+            "--leiden-max-iter",
+            "10",
+        ]);
+
+        let config = detection_config_from_args(&args);
+        assert_eq!(config.max_iterations, 10);
+        assert_eq!(config.epsilon, 1e-10);
+        assert_eq!(config.min_iterations, 1);
+        assert!(!config.skip_refinement);
+        assert_eq!(detection_mode(&args), "custom");
+    }
+
+    #[test]
+    fn leiden_flags_reject_non_positive_values() {
+        assert!(Cli::try_parse_from(["grafly", "analyze", ".", "--leiden-max-iter", "0"]).is_err());
+        assert!(Cli::try_parse_from(["grafly", "analyze", ".", "--leiden-epsilon", "-1"]).is_err());
+    }
 }

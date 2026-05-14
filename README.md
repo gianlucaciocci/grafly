@@ -107,6 +107,10 @@ grafly analyze . --formats json,html
 | `--include-imports` | `false` | Keep `Imports` edges in the output. Used for clustering either way; dropped after clustering by default because they create misleading `A → shared_file → B` path shortcuts and inflate hotspot degrees |
 | `--no-intra-package-modules` | `false` | Skip the intra-package Leiden pass. By default grafly clusters within each `Package` separately (in addition to the global cross-package modules), surfacing fine-grained subsystems inside each crate/package |
 | `--leiden-thorough` | `false` | Use leiden-rs's stock high-quality defaults (`max_iter=100`, `epsilon=1e-10`) instead of grafly's fast defaults (`max_iter=30`, `epsilon=1e-8`, `min_iter=3`). Adds time on large codebases for a sub-percent quality gain |
+| `--leiden-max-iter <N>` | preset | Override the Leiden iteration cap for parameter sweeps |
+| `--leiden-epsilon <FLOAT>` | preset | Override the Leiden convergence threshold |
+| `--leiden-min-iter <N>` | preset | Override the minimum Leiden iterations before convergence checks |
+| `--leiden-skip-refinement` | `false` | Skip Leiden's refinement phase |
 | `--include-private` | `false` | Show `Visibility::Private` symbols in the artifact HTML, hotspots, and couplings. Hidden by default so the architecture view stays focused on the public surface; always kept in `grafly_knowledge.json` regardless |
 
 Run `grafly analyze --help` for the same list straight from the binary.
